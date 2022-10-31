@@ -22,12 +22,18 @@ The repo bundles 950 Kakuro puzzles from [Otto and Angela Janko's puzzle site](h
 
 ### Platform support
 
-|                | Solver  | GUI |
+| OS / CPU arch. | Solver  | GUI |
 |----------------|---------|-----|
 | macOS x86      | ✅      | ✅  |
 | macOS aarch64  | ✅      | ❌  |
 | Windows 10 x86 | ✅      | 🐛  |
 | Linux          | ❓      | ❓  |
+
+Legend:
+
+✅ - Works without issues.
+🐛 - Mostly works, but with some issues.
+❌ - Does not work at all.
 
 If you run into any bugs or build issues, please [open an issue](https://github.com/schmee/zig-kakuro/issues/new).
 
