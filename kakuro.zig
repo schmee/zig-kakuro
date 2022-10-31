@@ -802,7 +802,8 @@ fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8)) !Descri
     {
         var n: usize = undefined;
         {
-            const row = rows.next().?;
+            const untrimmed_row = rows.next().?;
+            const row = std.mem.trimRight(u8, untrimmed_row, &std.ascii.spaces);
             var info = mem.split(u8, row, " ");
             var j: u8 = 0;
             while (info.next()) |c| {
@@ -814,6 +815,7 @@ fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8)) !Descri
                     else => {}
                 }
             }
+            assert(j == 3);
         }
     }
 
@@ -828,10 +830,11 @@ fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8)) !Descri
 
     var section: usize = 0;
     var i: usize = 1;
-    while (rows.next()) |row| {
+    while (rows.next()) |untrimmed_row| {
+        const row = std.mem.trimRight(u8, untrimmed_row, &std.ascii.spaces);
         if (row.len == 0) continue;
 
-        // debug.print("i {d} section {d}\n", .{i, section});
+        // std.log.info("i {d} section {d}\n", .{i, section});
         var list = switch (section) {
             0 => &board,
             1 => &row_constraints,
