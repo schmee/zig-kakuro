@@ -13,14 +13,25 @@ The repo bundles 950 Kakuro puzzles from [Otto and Angela Janko's puzzle site](h
 
 ## Building
 
-1. Download Zig 0.9.1 for your platform [here](https://ziglang.org/download/).
+1. Download Zig 0.9.1 for your platform [here](https://ziglang.org/download/) (but see (#platform-support) below).
 1. Clone this repo to your local machine.
 1. In the repo folder, run `git submodule update --init --recursive`
 1. Run zig-kakuro in one of two ways:
   - Run `zig build gui` to run the GUI solver
   - Run `zig build solve` to run the solver on all the included Kakuros.
 
-Although, zig-kakuro has been only tested on x86 MacOS, it _should_ build for Linux and Windows as well. If you run into any build problems, please [open an issue](https://github.com/schmee/zig-kakuro/issues/new).
+### Platform support
+
+|                | Solver  | GUI |
+|----------------|---------|-----|
+| macOS x86      | ✅      | ✅  |
+| macOS aarch64  | ✅      | ❌  |
+| Windows 10 x86 | ✅      | 🐛  |
+| Linux          | ❓      | ❓  |
+
+If you run into any bugs or build issues, please [open an issue](https://github.com/schmee/zig-kakuro/issues/new).
+
+The GUI issues are all caused by [the incomplete stage 1 Zig C ABI](https://github.com/ziglang/zig/issues/1481), and will hopefully go away once raylib-zig and zig-kakuro upgrades to Zig 0.10.
 
 ## Acknowledgements
 
