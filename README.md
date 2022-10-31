@@ -13,7 +13,7 @@ The repo bundles 950 Kakuro puzzles from [Otto and Angela Janko's puzzle site](h
 
 ## Building
 
-1. Download Zig 0.9.1 for your platform [here](https://ziglang.org/download/) (but see (#platform-support) below).
+1. Download Zig 0.9.1 for your platform [here](https://ziglang.org/download/) (but see [platform support](#platform-support) below).
 1. Clone this repo to your local machine.
 1. In the repo folder, run `git submodule update --init --recursive`
 1. Run zig-kakuro in one of two ways:
