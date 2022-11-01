@@ -909,10 +909,6 @@ fn createKakuros(allocator: Allocator, descriptions: []const Description) ![]Kak
 
 const Searcher = struct {
     const logger = std.log.scoped(.searcher);
-    const MoveOrderEnum = enum {
-        linear,
-        random,
-    };
 
     const Stats = struct {
         total_time: i64 = 0,
@@ -926,7 +922,6 @@ const Searcher = struct {
     max_iters_total: usize,
     max_iters_per_search: usize,
     max_retries: usize,
-    move_order_enum: MoveOrderEnum,
     run_context: *RunContext,
 
     fn do_search(self: *Self, allocator: Allocator) !?SearchResult {
@@ -1050,7 +1045,6 @@ const Runner = struct {
             .max_iters_total = 15_000_000,
             .max_iters_per_search = 4_000_000,
             .max_retries = 50,
-            .move_order_enum = .linear,
             .run_context = self.run_context,
         };
     }
