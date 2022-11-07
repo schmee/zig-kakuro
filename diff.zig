@@ -101,7 +101,11 @@ pub fn main() !void {
     var iters_unchanged: usize = 0;
     var iters_improvements: usize = 0;
     var iters_regressions: usize = 0;
+    var iters_total1: isize = 0;
+    var iters_total2: isize = 0;
     for (entities.items) |entity| {
+        iters_total1 += entity.line1.iters;
+        iters_total2 += entity.line2.iters;
         if (entity.diff.iters_rel < 100) {
             iters_improvements += 1;
         } else if (entity.diff.iters_rel > 100) {
@@ -116,6 +120,10 @@ pub fn main() !void {
     try w.print("iters: unchanged {d} improvements {d} regressions {d} => unchanged {d:.2}% improvements {d:.2}% regressions {d:.2}%\n", .{
         iters_unchanged, iters_improvements, iters_regressions, iters_percent_unchanged, iters_percent_improvements, iters_percent_regressions
     });
+
+    const iters_total_abs = iters_total2 - iters_total1;
+    const iters_total_rel = @intToFloat(f32, iters_total2) / @intToFloat(f32, iters_total1) * 100;
+    try w.print("iters: {d} {d} -> {d} {d:.2}%\n", .{iters_total1, iters_total2, iters_total_abs, iters_total_rel});
 
     for (entities.items) |entity| {
         if (entity.diff.iters_rel < 100) {
@@ -160,6 +168,24 @@ pub fn main() !void {
         try w.writeAll(ANSI_RESET);
     }
     try w.writeAll("\n");
+
+    const Sha256 = std.crypto.hash.sha2.Sha256;
+    const T = [Sha256.digest_length]u8;
+    var hasher = Sha256.init(.{});
+    var out = std.mem.zeroes(T);
+
+    for (entities.items) |entity| {
+        hasher.update(@bitCast([8]u8, entity.line1.iters)[0..]);
+    }
+    hasher.final(&out);
+    try w.print("iters hash 1 {s}\n", .{std.fmt.fmtSliceHexLower(out[0..])});
+
+    hasher = Sha256.init(.{});
+    for (entities.items) |entity| {
+        hasher.update(@bitCast([8]u8, entity.line2.iters)[0..]);
+    }
+    hasher.final(&out);
+    try w.print("iters hash 2 {s}\n", .{std.fmt.fmtSliceHexLower(out[0..])});
 }
 
 const Diff = struct {
