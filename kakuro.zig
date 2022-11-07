@@ -75,6 +75,11 @@ const State = struct {
     /// all cells are filled).
     n_filled: u16,
 
+    twomove: std.bit_set.DynamicBitSet,
+    threemove: std.bit_set.DynamicBitSet,
+    fourmove: std.bit_set.DynamicBitSet,
+    fivemove: std.bit_set.DynamicBitSet,
+
     const Self = @This();
 
     fn place(self: *Self, index: usize, val: u8) void {
@@ -119,6 +124,10 @@ const State = struct {
             .candidates = candidates,
             .n_filled = 0,
             .move_index = null,
+            .twomove = try std.bit_set.DynamicBitSet.initEmpty(allocator, aux_data.precomputed_lines.lines.len),
+            .threemove = try std.bit_set.DynamicBitSet.initEmpty(allocator, aux_data.precomputed_lines.lines.len),
+            .fourmove = try std.bit_set.DynamicBitSet.initEmpty(allocator, aux_data.precomputed_lines.lines.len),
+            .fivemove = try std.bit_set.DynamicBitSet.initEmpty(allocator, aux_data.precomputed_lines.lines.len),
         };
 
         // Apply upper and lower bounds on all cells as a pre-pass.
@@ -129,6 +138,18 @@ const State = struct {
                 const index = line.indices[i];
                 var cnds = &state.candidates[index];
                 cnds.mask(mask);
+            }
+            var n_empty: usize = 0;
+            for (line.constSlice()) |j| {
+                if (!state.candidates[j].is_filled())
+                    n_empty += 1;
+            }
+            switch (n_empty) {
+                2 => state.twomove.set(line.id),
+                3 => state.threemove.set(line.id),
+                4 => state.fourmove.set(line.id),
+                5 => state.fivemove.set(line.id),
+                else => {},
             }
         }
 
@@ -144,6 +165,10 @@ const State = struct {
             .candidates = try allocator.dupe(Candidates, self.candidates),
             .n_filled = self.n_filled,
             .move_index = move_index,
+            .twomove = try self.twomove.clone(allocator),
+            .threemove = try self.threemove.clone(allocator),
+            .fourmove = try self.fourmove.clone(allocator),
+            .fivemove = try self.fivemove.clone(allocator),
         };
     }
 };
@@ -236,6 +261,27 @@ const Candidates = struct {
         }
         debug.print("]\n", .{});
     }
+
+    fn iterator(self: Self) Iterator {
+        return Iterator{ .cs = self.cs, .total = 0 };
+    }
+
+    const Iterator = struct {
+        cs: Candidates.Int,
+        total: u8,
+
+        const Iter = @This();
+
+        fn next(self: *Iter) ?u8 {
+            if (self.total >= max_candidates) return null;
+
+            const first: u4 = @ctz(u10, self.cs);
+            self.total += first + 1;
+            if (self.total > max_candidates) return null;
+            self.cs >>= @intCast(u4, first + 1);
+            return self.total;
+        }
+    };
 };
 
 const PrecomputedLines = struct {
@@ -283,15 +329,59 @@ fn candidates_mask(line_len: u8, line_constraint: u8, candidate_to_remove: u8) C
     return out;
 }
 
+// The current values of a line computed from `State`.
+const LineState = struct {
+    /// The cells that comprise this line -> indices into `State.candidates`.
+    indices: [5]u16,
+    line_id: u16,
+    n_empty: u8,
+    current_constraint: u8,
+};
+
+/// Extracts the current state of a line on the board.
+fn computeLineState(state: *const State, line: Line) LineState {
+    var sum: u8 = 0;
+    var n_filled: u8 = 0;
+    var empty_indices = std.BoundedArray(u16, 9).init(0) catch unreachable;
+    for (line.constSlice()) |index| {
+        const cnds = state.candidates[index];
+        if (cnds.is_filled()) {
+            const val = state.get(index);
+            sum += @intCast(u8, val);
+            n_filled += 1;
+        } else {
+            empty_indices.append(index) catch unreachable;
+        }
+    }
+
+    const n_empty = line.len - n_filled;
+    var line_state = LineState{
+        .indices = undefined,
+        .line_id = line.id,
+        .n_empty = n_empty,
+        .current_constraint = line.constraint - sum,
+    };
+    // Store indices for exact line solving.
+    if (n_empty >= 2 and n_empty <= 5) {
+        std.mem.copy(u16, &line_state.indices, empty_indices.constSlice());
+    }
+    return line_state;
+}
+
 /// Represents a row or column on the board. Only contains static data,
 /// uses `indices` to fetch data from the current `State` during solving.
 const Line = struct {
+    id: u16,
     /// The cells that comprise this line -> indices into `State.candidates`.
     indices: [9]u16,
     len: u8,
     constraint: u8,
 
     const Self = @This();
+
+    fn constSlice(self: Self) []const u16 {
+        return self.indices[0..self.len];
+    }
 
     fn is_solved(self: Self, state: State) bool {
         var i: u8 = 0;
@@ -311,55 +401,64 @@ const Line = struct {
         return sum == self.constraint;
     }
 
-    /// The heart of the solver. After a number has been placed in a cell, this
-    /// function figures out which candidates are no longer valid in that line
-    /// and applies it to all neighbours. If any of those neighbours only have
-    /// one possible candidate after this step, the procedure repeats for that
-    /// cell.
+    ///  After a number has been placed in a cell, this function figures out
+    ///  which candidates are no longer valid in that line and applies it to
+    ///  all neighbours. If any of those neighbours only have one possible
+    ///  candidate after this step, the procedure repeats for that cell.
     fn remove_candidate_and_propagate(self: Self, state: *State, stack: *PropagateStack, candidate: u8, run_context: *RunContext, should_draw_propagation: bool) !bool {
-        // Compute the number of filled cells and their sum.
-        var sum: u8 = 0;
-        var n_filled: u8 = 0;
-        {
-            var i: u8 = 0;
-            while (i < self.len) : (i += 1) {
-                const index = self.indices[i];
-                const cnds = state.candidates[index];
-
-                if (cnds.is_filled()) {
-                    const val = state.get(index);
-                    sum += @intCast(u8, val);
-                    n_filled += 1;
-                }
-            }
+        const line_state = computeLineState(state, self);
+        const n_empty = line_state.n_empty;
+        if (n_empty == 0) {
+            return true;
         }
 
-        const n_empty = self.len - n_filled;
-        if (n_empty > 0) {
-            const current_constraint = self.constraint - sum;
-            const candidates_to_remove = candidates_mask(n_empty, current_constraint, candidate);
-            var i: u8 = 0;
-            while (i < self.len) : (i += 1) {
-                const index = self.indices[i];
-                // debug.print("i {d} index {d} cnds {b:10} filled {s}\n", .{i, index, state.candidates[index].cs, state.is_filled(index)});
-                if (state.is_filled(index)) continue;
+        // Note down which lines have 2-5 empty cells so we can solve them
+        // exactly later.
+        // TODO: replace all this with a single array of bitpacked `u2`.
+        if (n_empty == 2) {
+            state.twomove.set(self.id);
+        } else {
+            state.twomove.unset(self.id);
+        }
+        if (n_empty == 3) {
+            state.threemove.set(self.id);
+        } else {
+            state.threemove.unset(self.id);
+        }
+        if (n_empty == 4) {
+            state.fourmove.set(self.id);
+        } else {
+            state.fourmove.unset(self.id);
+        }
+        if (n_empty == 5) {
+            state.fivemove.set(self.id);
+        } else {
+            state.fivemove.unset(self.id);
+        }
 
-                var cnds = &state.candidates[index];
-                if (has_gui and should_draw_propagation) {
-                    const old = cnds.*;
-                    cnds.mask(candidates_to_remove);
-                    if (old.cs != cnds.cs) {
-                        try run_context.markPropagation(index, old, cnds.*);
-                    }
-                    std.time.sleep(run_context.sleep_time_ns / 3);
-                } else {
-                    cnds.mask(candidates_to_remove);
+        const current_constraint = line_state.current_constraint;
+        const candidates_to_remove = candidates_mask(n_empty, current_constraint, candidate);
+        var i: u8 = 0;
+        while (i < self.len) : (i += 1) {
+            const index = self.indices[i];
+            // debug.print("i {d} index {d} cnds {b:10} filled {s}\n", .{i, index, state.candidates[index].cs, state.is_filled(index)});
+            if (state.is_filled(index)) continue;
+
+            var cnds = &state.candidates[index];
+            if (has_gui and should_draw_propagation) {
+                const old = cnds.*;
+                cnds.mask(candidates_to_remove);
+                if (old.cs != cnds.cs) {
+                    try run_context.markPropagation(index, old, cnds.*);
                 }
-                switch (cnds.count()) {
-                    0 => return false,
-                    1 => try stack.append(index),
-                    else => {},
-                }
+                std.time.sleep(run_context.sleep_time_ns / 3);
+            } else {
+                cnds.mask(candidates_to_remove);
+            }
+            switch (cnds.count()) {
+                0 => return false,
+                1 => try stack.append(index),
+                else => {},
             }
         }
 
@@ -441,6 +540,7 @@ fn compute_lines(
                     prev_index;
 
                 const row = Line {
+                    .id = @intCast(u16, lines.items.len),
                     .indices = indices,
                     .len = len,
                     .constraint = row_constraints[constraint_index],
@@ -489,6 +589,7 @@ fn compute_lines(
                     prev_index;
 
                 const col = Line {
+                    .id = @intCast(u16, lines.items.len),
                     .indices = indices,
                     .len = len,
                     .constraint = col_constraints[constraint_index],
@@ -626,6 +727,285 @@ const SearchResult = struct {
     }
 };
 
+const max_line_solutions: usize = 2;
+
+const TwoMove = struct {
+    index1: u16,
+    val1: u8,
+    index2: u16,
+    val2: u8,
+};
+
+fn solve_line_exactly_two(
+    state: *const State,
+    line_state: LineState,
+) !std.BoundedArray(TwoMove, max_line_solutions) {
+    const indices = line_state.indices;
+    assert(line_state.n_empty == 2);
+
+    const cs1 = state.candidates[indices[0]];
+    const cs2 = state.candidates[indices[1]];
+
+    var n_solutions: usize = 0;
+    var moves = std.BoundedArray(TwoMove, max_line_solutions).init(0) catch unreachable;
+
+    var a: u8 = 1;
+    while (a <= max_candidates) : (a += 1) {
+        if (!cs1.is_candidate(a)) continue;
+        const b = line_state.current_constraint - a;
+        if (a == b) continue;
+        if (!cs2.is_candidate(b)) continue;
+
+        n_solutions += 1;
+        if (n_solutions > max_line_solutions) {
+            moves.len = 3;
+            return moves;
+        }
+
+        try moves.append(.{
+            .index1 = indices[0],
+            .val1 = a,
+            .index2 = indices[1],
+            .val2 = b,
+        });
+    }
+
+    return moves;
+}
+
+const ThreeMove = struct {
+    index1: u16,
+    val1: u8,
+    index2: u16,
+    val2: u8,
+    index3: u16,
+    val3: u8,
+};
+
+fn solve_line_exactly_three(
+    state: *const State,
+    line_state: LineState,
+) !std.BoundedArray(ThreeMove, max_line_solutions) {
+    const indices = line_state.indices;
+    assert(line_state.n_empty == 3);
+
+    const cs1 = state.candidates[indices[0]];
+    const cs2 = state.candidates[indices[1]];
+    const cs3 = state.candidates[indices[2]];
+    var n_solutions: usize = 0;
+    var moves = std.BoundedArray(ThreeMove, max_line_solutions).init(0) catch unreachable;
+
+    var a: u8 = 1;
+    while (a <= max_candidates) : (a += 1) {
+        var b: u8 = 1;
+        if (!cs1.is_candidate(a)) continue;
+        const s = line_state.current_constraint - a;
+        while (b <= @minimum(max_candidates, s)) : (b += 1) {
+            if (!cs2.is_candidate(b)) continue;
+            if (a == b) continue;
+            const c = s - b;
+            if (c == 0 or c > max_candidates) continue;
+            if (!cs3.is_candidate(c)) continue;
+            if (c == a or c == b) continue;
+            assert(a + b + c == line_state.current_constraint);
+
+            n_solutions += 1;
+            if (n_solutions > max_line_solutions) {
+                moves.len = 3;
+                return moves;
+            }
+
+            try moves.append(.{
+                .index1 = indices[0],
+                .val1 = a,
+                .index2 = indices[1],
+                .val2 = b,
+                .index3 = indices[2],
+                .val3 = c,
+            });
+        }
+    }
+
+    return moves;
+}
+
+const FourMove = struct {
+    index1: u16,
+    val1: u8,
+    index2: u16,
+    val2: u8,
+    index3: u16,
+    val3: u8,
+    index4: u16,
+    val4: u8,
+};
+
+fn solve_line_exactly_four(
+    state: *const State,
+    line_state: LineState,
+) !std.BoundedArray(FourMove, max_line_solutions) {
+    const indices = line_state.indices;
+    assert(line_state.n_empty == 4);
+
+    const cs1 = state.candidates[indices[0]];
+    const cs2 = state.candidates[indices[1]];
+    const cs3 = state.candidates[indices[2]];
+    const cs4 = state.candidates[indices[3]];
+
+    var n_solutions: usize = 0;
+    var moves = std.BoundedArray(FourMove, max_line_solutions).init(0) catch unreachable;
+
+    var a: u8 = 1;
+    while (a <= max_candidates) : (a += 1) {
+        if (!cs1.is_candidate(a)) continue;
+        var b: u8 = 1;
+        const s = line_state.current_constraint - a;
+        while (b <= @minimum(max_candidates, s)) : (b += 1) {
+            if (!cs2.is_candidate(b)) continue;
+            if (b == a) continue;
+            const ss = s - b;
+            var c: u8 = 1;
+            while (c <= @minimum(max_candidates, ss)) : (c += 1) {
+                if (!cs3.is_candidate(c)) continue;
+                if (c == a or c == b) continue;
+                const d = ss - c;
+                if (d == 0 or d > max_candidates) continue;
+                if (!cs4.is_candidate(d)) continue;
+                if (d == a or d == b or d == c) continue;
+                assert(a + b + c + d == line_state.current_constraint);
+
+                n_solutions += 1;
+                if (n_solutions > max_line_solutions) {
+                    moves.len = 3;
+                    return moves;
+                }
+
+                try moves.append(.{
+                    .index1 = indices[0],
+                    .val1 = a,
+                    .index2 = indices[1],
+                    .val2 = b,
+                    .index3 = indices[2],
+                    .val3 = c,
+                    .index4 = indices[3],
+                    .val4 = d,
+                });
+            }
+        }
+    }
+
+    return moves;
+}
+
+const FiveMove = struct {
+    index1: u16,
+    val1: u8,
+    index2: u16,
+    val2: u8,
+    index3: u16,
+    val3: u8,
+    index4: u16,
+    val4: u8,
+    index5: u16,
+    val5: u8,
+};
+
+fn solve_line_exactly_five(
+    state: *const State,
+    line_state: LineState,
+) !std.BoundedArray(FiveMove, max_line_solutions) {
+    const indices = line_state.indices;
+    assert(line_state.n_empty == 5);
+
+    const cs1 = state.candidates[indices[0]];
+    const cs2 = state.candidates[indices[1]];
+    const cs3 = state.candidates[indices[2]];
+    const cs4 = state.candidates[indices[3]];
+    const cs5 = state.candidates[indices[4]];
+
+    var n_solutions: usize = 0;
+    var moves = std.BoundedArray(FiveMove, max_line_solutions).init(0) catch unreachable;
+
+    var a: u8 = 1;
+    while (a <= max_candidates) : (a += 1) {
+        if (!cs1.is_candidate(a)) continue;
+        var b: u8 = 1;
+        const s = line_state.current_constraint - a;
+        while (b <= @minimum(max_candidates, s)) : (b += 1) {
+            if (!cs2.is_candidate(b)) continue;
+            if (b == a) continue;
+            const ss = s - b;
+            var c: u8 = 1;
+            while (c <= @minimum(max_candidates, ss)) : (c += 1) {
+                if (!cs3.is_candidate(c)) continue;
+                if (c == a or c == b) continue;
+                const sss = ss - c;
+                var d: u8 = 1;
+                while (d <= @minimum(max_candidates, sss)) : (d += 1) {
+                    if (!cs4.is_candidate(d)) continue;
+                    if (d == a or d == b or d == c) continue;
+                    const e = sss - d;
+                    if (e == 0 or e > max_candidates) continue;
+                    if (!cs5.is_candidate(e)) continue;
+                    if (e == a or e == b or e == c or e == d) continue;
+                    assert(a + b + c + d + e == line_state.current_constraint);
+
+                    n_solutions += 1;
+                    if (n_solutions > max_line_solutions) {
+                        moves.len = 3;
+                        return moves;
+                    }
+
+                    try moves.append(.{
+                        .index1 = indices[0],
+                        .val1 = a,
+                        .index2 = indices[1],
+                        .val2 = b,
+                        .index3 = indices[2],
+                        .val3 = c,
+                        .index4 = indices[3],
+                        .val4 = d,
+                        .index5 = indices[4],
+                        .val5 = e,
+                    });
+                }
+            }
+        }
+    }
+
+    return moves;
+}
+
+fn cloneAndMove(comptime T: type, allocator: Allocator, state: *State, move: T) !State {
+    var clone = try state.clone(allocator, move.index1);
+    switch (T) {
+        TwoMove => {
+            clone.candidates[move.index1].set_unique(move.val1);
+            clone.candidates[move.index2].set_unique(move.val2);
+        },
+        ThreeMove => {
+            clone.candidates[move.index1].set_unique(move.val1);
+            clone.candidates[move.index2].set_unique(move.val2);
+            clone.candidates[move.index3].set_unique(move.val3);
+        },
+        FourMove => {
+            clone.candidates[move.index1].set_unique(move.val1);
+            clone.candidates[move.index2].set_unique(move.val2);
+            clone.candidates[move.index3].set_unique(move.val3);
+            clone.candidates[move.index4].set_unique(move.val4);
+        },
+        FiveMove => {
+            clone.candidates[move.index1].set_unique(move.val1);
+            clone.candidates[move.index2].set_unique(move.val2);
+            clone.candidates[move.index3].set_unique(move.val3);
+            clone.candidates[move.index4].set_unique(move.val4);
+            clone.candidates[move.index5].set_unique(move.val5);
+        },
+        else => @compileError("moveAndClone not implemented for type T"),
+    }
+    return clone;
+}
+
 fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_data: AuxData, opts: SearchOpts, run_context: *RunContext) !SearchResult {
     var stack = _stack.*;
 
@@ -665,9 +1045,10 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
     }
 
     const precomputed_lines = aux_data.precomputed_lines;
-    while (stack.items.len > 0 and iters < opts.max_iters) {
+    search: while (stack.items.len > 0 and iters < opts.max_iters) {
         if (has_gui and !run_context.running.load(.SeqCst))
             break;
+        if (false) break :search;
         // if (iters % 10 == 0)
         //     std.log.info("search stack {d} iters {d}\n", .{stack.items.len, iters});
         iters += 1;
@@ -687,7 +1068,6 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
             }
             current.deinit(allocator);
         }
-
 
         if (has_gui) {
             std.time.sleep(run_context.sleep_time_ns / run_context.sleep_time_multiplier);
@@ -723,7 +1103,194 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
             return result;
         }
 
-        // Find the best candidate for the next move
+
+        // ================================= Exact line solving =================================
+        //
+        // Attempt to solve lines of with 2 to 5 empty cells exactly, looking for lines with either
+        // 0, 1 or 2 solutions. A "solution" in this context is any valid set of moves that fills
+        // all cells. If we encounter a line with more than 2 solutions we bail out early. So there
+        // are three cases to consider:
+        //
+        // 0 solution: current board has no solutions, go next.
+        // 1 solution: line has a forced move, make that move and continue.
+        // 2 solution: line is a 50/50, if we have no better alternatives we'll take this since
+        //             we at least have a 50% chance to get it right.
+        //
+        // Solving lines exactly is O(9^n), where `n` is the number of cells in the line, but it
+        // turns out that solving (multiple) exponential subproblems is WAY faster than just doing
+        // simple constraint propagation. I've determined experimentally that 5 empty is the limit
+        // for this method, solving 6+ empty cell lines still yields reduced iteration counts,
+        // but the all speed gains from reduced iterations are eaten up by the extra work needed to
+        // solve the lines in the first place.
+        //
+        // We proceed as follows: we solve lines with 2, 3, 4 and 5 empty cells exactly and look
+        // for lines with 0 or 1 solutions (these are dead ends and forced moves, respectively).
+        // If we find no such lines, we then look at solutions with 2 moves in reverse order,
+        // so 5, 4, 3, and 2. We look in this order because the more empty cells we can fill
+        // the better.
+        //
+        // If none of this works, we fall back to a looking for the cell with the fewest candidates,
+        // trying each move in turn.
+
+
+        // 1. Solve lines of length 2 exactly.
+        var it = current.twomove.iterator(.{});
+        var two_move_one: ?TwoMove = null;
+        var two_move_two: ?[max_line_solutions]TwoMove = null;
+        while (it.next()) |index| {
+            // std.log.info("two move {d}", .{index});
+            const line = precomputed_lines.lines[index];
+            const line_state = computeLineState(&current, line);
+            const moves = try solve_line_exactly_two(&current, line_state);
+
+            switch(moves.len) {
+                0 => continue :search, // current state is a dead end
+                1 => {
+                    two_move_one = moves.get(0);
+                    break;
+                },
+                2 => if (two_move_two == null) {
+                    two_move_two = moves.buffer;
+                },
+                else => {},
+            }
+        }
+
+        // We found a length 2 line with 1 solution => forced move
+        if (two_move_one) |move| {
+            const clone = try cloneAndMove(TwoMove, allocator, &current, move);
+            try stack.append(clone);
+            continue :search;
+        }
+
+        // 2. Solve all lines of length 3 exactly.
+        it = current.threemove.iterator(.{});
+        var three_move_one: ?ThreeMove = null;
+        var three_move_two: ?[max_line_solutions]ThreeMove = null;
+        while (it.next()) |index| {
+            // std.log.info("three move {d}", .{index});
+            const line = precomputed_lines.lines[index];
+            const line_state = computeLineState(&current, line);
+            const moves = try solve_line_exactly_three(&current, line_state);
+
+            switch(moves.len) {
+                0 => continue :search, // current state is a dead end
+                1 => {
+                    three_move_one = moves.get(0);
+                    break;
+                },
+                2 => if (three_move_two == null) {
+                    three_move_two = moves.buffer;
+                },
+                else => {},
+            }
+        }
+
+        // We found a length 3 line with 1 solution => forced move
+        if (three_move_one) |move| {
+            const clone = try cloneAndMove(ThreeMove, allocator, &current, move);
+            try stack.append(clone);
+            continue :search;
+        }
+
+        // 3. Solve all lines of length 4 exactly.
+        it = current.fourmove.iterator(.{});
+        var four_move_one: ?FourMove = null;
+        var four_move_two: ?[max_line_solutions]FourMove = null;
+        while (it.next()) |index| {
+            // std.log.info("four move {d}", .{index});
+            const line = precomputed_lines.lines[index];
+            const line_state = computeLineState(&current, line);
+            const moves = try solve_line_exactly_four(&current, line_state);
+
+            switch(moves.len) {
+                0 => continue :search, // current state is a dead end
+                1 => {
+                    four_move_one = moves.get(0);
+                    break;
+                },
+                2 => if (four_move_two == null) {
+                    four_move_two = moves.buffer;
+                },
+                else => {},
+            }
+        }
+
+        // We found a length 3 line with 1 solution => forced move
+        if (four_move_one) |move| {
+            // std.log.info("DID four MOVE OPT", .{});
+            const clone = try cloneAndMove(FourMove, allocator, &current, move);
+            try stack.append(clone);
+            continue :search;
+        }
+
+        // 4. Solve all lines of length 5 exactly.
+        it = current.fivemove.iterator(.{});
+        var five_move_one: ?FiveMove = null;
+        var five_move_two: ?[max_line_solutions]FiveMove = null;
+        while (it.next()) |index| {
+            // std.log.info("five move {d}", .{index});
+            const line = precomputed_lines.lines[index];
+            const line_state = computeLineState(&current, line);
+            const moves = try solve_line_exactly_five(&current, line_state);
+
+            switch(moves.len) {
+                0 => continue :search, // current state is a dead end
+                1 => {
+                    five_move_one = moves.get(0);
+                    break;
+                },
+                2 => if (five_move_two == null) {
+                    five_move_two = moves.buffer;
+                },
+                else => {},
+            }
+        }
+
+        // We found a length 3 line with 1 solution => forced move
+        if (five_move_one) |move| {
+            const clone = try cloneAndMove(FiveMove, allocator, &current, move);
+            try stack.append(clone);
+            continue :search;
+        // We found a length 5 line with a 50/50, add both moves and continue
+        } else if (five_move_two) |moves| {
+            for (moves) |move| {
+                const clone = try cloneAndMove(FiveMove, allocator, &current, move);
+                try stack.append(clone);
+            }
+            continue :search;
+        }
+
+        // We found a length 4 line with a 50/50, add both moves and continue
+        if (four_move_two) |moves| {
+            for (moves) |move| {
+                const clone = try cloneAndMove(FourMove, allocator, &current, move);
+                try stack.append(clone);
+            }
+            continue :search;
+        }
+
+        // We found a length 3 line with a 50/50, add both moves and continue
+        if (three_move_two) |moves| {
+            // std.log.info("DID THREE MOVE OPT", .{});
+            for (moves) |move| {
+                const clone = try cloneAndMove(ThreeMove, allocator, &current, move);
+                try stack.append(clone);
+            }
+            continue :search;
+        }
+
+        // We found a length 2 line with a 50/50, add both moves and continue
+        if (two_move_two) |moves| {
+            // std.log.info("DID TWO MOVE OPT", .{});
+            for (moves) |move| {
+                const clone = try cloneAndMove(TwoMove, allocator, &current, move);
+                try stack.append(clone);
+            }
+            continue :search;
+        }
+
+        // Exact line solving found nothing, fall back to cell with fewest candidates.
         var best_index: u16 = 0;
         var best_cell: Candidates = undefined;
         var best_count: u8 = 10;
@@ -970,29 +1537,12 @@ const Searcher = struct {
     }
 };
 
-/// Kakuros that have so far resisted a solution. They are not actually unsolvable,
-/// just not solvable by this Kakuro solver (so far!).
-const unsolvable = blk: {
-    var arr = [_]bool { false } ** 960;
-    arr[187] = true;
-    arr[237] = true;
-    arr[240] = true;
-    arr[251] = true;
-    arr[253] = true;
-    arr[258] = true;
-    arr[259] = true;
-    arr[260] = true;
-    arr[941] = true;
-    break :blk arr;
-};
-
 const Runner = struct {
     const logger = std.log.scoped(.runner);
 
     kakuros: []const Kakuro,
     allocator: Allocator,
     stack: *ArrayList(State),
-    skips: ?[]const bool,
     solution: ?State,
     run_context: *RunContext,
     search_results: []?SearchResult,
@@ -1006,7 +1556,6 @@ const Runner = struct {
             .kakuros = kakuros,
             .allocator = allocator,
             .stack = stack,
-            .skips = &unsolvable,
             .solution = null,
             .run_context = run_context,
             .search_results = try allocator.alloc(?SearchResult, kakuros.len),
@@ -1027,9 +1576,6 @@ const Runner = struct {
     fn runRange(self: *Self, start: usize, end: usize) !void {
         var index: usize = start;
         while (index < end) : (index += 1) {
-            if (self.skips) |skip| {
-                if (skip[index]) continue;
-            }
             try self.runOne(index);
         }
     }
@@ -1043,7 +1589,7 @@ const Runner = struct {
             .kakuro = self.kakuros[index],
             .stack = self.stack,
             .max_iters_total = 15_000_000,
-            .max_iters_per_search = 4_000_000,
+            .max_iters_per_search = 8_000_000,
             .max_retries = 50,
             .run_context = self.run_context,
         };
