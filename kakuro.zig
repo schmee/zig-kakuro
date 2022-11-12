@@ -158,6 +158,10 @@ const State = struct {
 
     fn deinit(self: *Self, allocator: Allocator) void {
         allocator.free(self.candidates);
+        self.twomove.deinit();
+        self.threemove.deinit();
+        self.fourmove.deinit();
+        self.fivemove.deinit();
     }
 
     fn clone(self: Self, allocator: Allocator, move_index: ?u16) !State {
