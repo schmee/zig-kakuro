@@ -1593,7 +1593,7 @@ const Runner = struct {
             .kakuro = self.kakuros[index],
             .stack = self.stack,
             .max_iters_total = 15_000_000,
-            .max_iters_per_search = 8_000_000,
+            .max_iters_per_search = 9_000_000,
             .max_retries = 50,
             .run_context = self.run_context,
         };

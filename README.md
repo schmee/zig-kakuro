@@ -7,7 +7,7 @@
 
 A [Kakuro](https://en.wikipedia.org/wiki/Kakuro) solver written in Zig with a GUI for interactive solving.
 
-The repo bundles 950 Kakuro puzzles from [Otto and Angela Janko's puzzle site](https://www.janko.at/Raetsel/Kakuro/), an excellent resource for logic puzzles of all kinds, and after some algorithm improvements zig-kakuro can now solve all 950 puzzles 😎
+The repo bundles 980 Kakuro puzzles from [Otto and Angela Janko's puzzle site](https://www.janko.at/Raetsel/Kakuro/), an excellent resource for logic puzzles of all kinds, and after some algorithm improvements zig-kakuro can now solve all 980 puzzles 😎
 
 ## Building
 
