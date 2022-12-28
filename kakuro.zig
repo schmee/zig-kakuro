@@ -226,7 +226,7 @@ const Candidates = struct {
     cs: Int,
 
     fn count(self: Self) u8 {
-        return @popCount(Int, self.cs & ~(@as(u10, 1) << 9));
+        return @popCount(self.cs & ~(@as(u10, 1) << 9));
     }
 
     fn is_candidate(self: Self, val: u8) bool {
@@ -236,7 +236,7 @@ const Candidates = struct {
 
     fn get_unique(self: Self) u8 {
         assert(self.count() == 1);
-        return @ctz(Int, self.cs) + 1;
+        return @ctz(self.cs) + 1;
     }
 
     fn set_unique(self: *Self, val: u8) void {
@@ -279,7 +279,7 @@ const Candidates = struct {
         fn next(self: *Iter) ?u8 {
             if (self.total >= max_candidates) return null;
 
-            const first: u4 = @ctz(u10, self.cs);
+            const first: u4 = @ctz(self.cs);
             self.total += first + 1;
             if (self.total > max_candidates) return null;
             self.cs >>= @intCast(u4, first + 1);
@@ -383,7 +383,7 @@ const Line = struct {
 
     const Self = @This();
 
-    fn constSlice(self: Self) []const u16 {
+    fn constSlice(self: *const Self) []const u16 {
         return self.indices[0..self.len];
     }
 
@@ -623,7 +623,7 @@ fn compute_lines(
     }
 
     return PrecomputedLines {
-        .lines = lines.toOwnedSlice(),
+        .lines = try lines.toOwnedSlice(),
         .index_to_lines = index_to_lines,
     };
 }
@@ -804,7 +804,7 @@ fn solve_line_exactly_three(
         var b: u8 = 1;
         if (!cs1.is_candidate(a)) continue;
         const s = line_state.current_constraint - a;
-        while (b <= @minimum(max_candidates, s)) : (b += 1) {
+        while (b <= @min(max_candidates, s)) : (b += 1) {
             if (!cs2.is_candidate(b)) continue;
             if (a == b) continue;
             const c = s - b;
@@ -864,12 +864,12 @@ fn solve_line_exactly_four(
         if (!cs1.is_candidate(a)) continue;
         var b: u8 = 1;
         const s = line_state.current_constraint - a;
-        while (b <= @minimum(max_candidates, s)) : (b += 1) {
+        while (b <= @min(max_candidates, s)) : (b += 1) {
             if (!cs2.is_candidate(b)) continue;
             if (b == a) continue;
             const ss = s - b;
             var c: u8 = 1;
-            while (c <= @minimum(max_candidates, ss)) : (c += 1) {
+            while (c <= @min(max_candidates, ss)) : (c += 1) {
                 if (!cs3.is_candidate(c)) continue;
                 if (c == a or c == b) continue;
                 const d = ss - c;
@@ -935,17 +935,17 @@ fn solve_line_exactly_five(
         if (!cs1.is_candidate(a)) continue;
         var b: u8 = 1;
         const s = line_state.current_constraint - a;
-        while (b <= @minimum(max_candidates, s)) : (b += 1) {
+        while (b <= @min(max_candidates, s)) : (b += 1) {
             if (!cs2.is_candidate(b)) continue;
             if (b == a) continue;
             const ss = s - b;
             var c: u8 = 1;
-            while (c <= @minimum(max_candidates, ss)) : (c += 1) {
+            while (c <= @min(max_candidates, ss)) : (c += 1) {
                 if (!cs3.is_candidate(c)) continue;
                 if (c == a or c == b) continue;
                 const sss = ss - c;
                 var d: u8 = 1;
-                while (d <= @minimum(max_candidates, sss)) : (d += 1) {
+                while (d <= @min(max_candidates, sss)) : (d += 1) {
                     if (!cs4.is_candidate(d)) continue;
                     if (d == a or d == b or d == c) continue;
                     const e = sss - d;
@@ -1341,7 +1341,7 @@ const Description = struct {
 };
 
 fn parse_descriptions(allocator: Allocator, path: []const u8) ![]Description {
-    const file = try fs.cwd().openFile(path, .{ .read = true });
+    const file = try fs.cwd().openFile(path, .{ .mode = .read_write });
     defer file.close();
     const stat = try file.stat();
     const contents = try file.reader().readAllAlloc(
@@ -1374,7 +1374,7 @@ fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8)) !Descri
         var n: usize = undefined;
         {
             const untrimmed_row = rows.next().?;
-            const row = std.mem.trimRight(u8, untrimmed_row, &std.ascii.spaces);
+            const row = std.mem.trimRight(u8, untrimmed_row, &std.ascii.whitespace);
             var info = mem.split(u8, row, " ");
             var j: u8 = 0;
             while (info.next()) |c| {
@@ -1402,7 +1402,7 @@ fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8)) !Descri
     var section: usize = 0;
     var i: usize = 1;
     while (rows.next()) |untrimmed_row| {
-        const row = std.mem.trimRight(u8, untrimmed_row, &std.ascii.spaces);
+        const row = std.mem.trimRight(u8, untrimmed_row, &std.ascii.whitespace);
         if (row.len == 0) continue;
 
         // std.log.info("i {d} section {d}\n", .{i, section});
@@ -1437,11 +1437,11 @@ fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8)) !Descri
     return Description{
         .n_rows = n_rows,
         .n_cols = n_cols,
-        .board = board.toOwnedSlice(),
-        .row_constraints = row_constraints.toOwnedSlice(),
-        .col_constraints = col_constraints.toOwnedSlice(),
-        .solution = solution.toOwnedSlice(),
-        .state_index_to_board_index = state_index_to_board_index.toOwnedSlice(),
+        .board = try board.toOwnedSlice(),
+        .row_constraints = try row_constraints.toOwnedSlice(),
+        .col_constraints = try col_constraints.toOwnedSlice(),
+        .solution = try solution.toOwnedSlice(),
+        .state_index_to_board_index = try state_index_to_board_index.toOwnedSlice(),
     };
 }
 
@@ -1568,7 +1568,8 @@ const Runner = struct {
 
     fn runOne(self: *Self, index: usize) !void {
         logger.info("#{d} Running...", .{index});
-        const search_result = try create_searcher(self, index - 1).do_search(self.allocator);
+        var searcher = create_searcher(self, index - 1);
+        const search_result = try searcher.do_search(self.allocator);
         if(search_result) |sr| {
             if (sr.solution) |s| {
                 self.solution = s.*;
@@ -1730,7 +1731,7 @@ const Queue = struct {
             t.next = tail;
         }
         self.tail = tail;
-        self.len = @minimum(self.len + 1, max_rewinds);
+        self.len = @min(self.len + 1, max_rewinds);
         if (self.len == 1) {
             self.head = tail;
         }
@@ -1935,7 +1936,6 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
         .rotation = 0.0,
         .zoom = 0.8,
     };
-    _ = camera;
 
     var prev_mouse_position = rl.GetMousePosition();
 
@@ -1971,7 +1971,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
         }
 
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_H)) {
-            run_context.sleep_time_multiplier = @maximum(run_context.sleep_time_multiplier / 2, 1);
+            run_context.sleep_time_multiplier = @max(run_context.sleep_time_multiplier / 2, 1);
             std.log.info("PRESSED 'H', speed {d}", .{run_context.sleep_time_multiplier});
         }
 
@@ -1982,17 +1982,17 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
 
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_C)) {
             shouldDrawCandidates = !shouldDrawCandidates;
-            std.log.info("PRESSED 'C', should draw candidates {d}", .{shouldDrawCandidates});
+            std.log.info("PRESSED 'C', should draw candidates {}", .{shouldDrawCandidates});
         }
 
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_X)) {
             shouldDrawCandidateIndexes = !shouldDrawCandidateIndexes;
-            std.log.info("PRESSED 'X', should draw candidate indexes {d}", .{shouldDrawCandidateIndexes});
+            std.log.info("PRESSED 'X', should draw candidate indexes {}", .{shouldDrawCandidateIndexes});
         }
 
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_O)) {
             _ = @atomicRmw(u8, &run_context.should_draw_propagation, .Xor, 1, .SeqCst);
-            std.log.info("PRESSED 'O', should draw propagation {d}", .{run_context.should_draw_propagation});
+            std.log.info("PRESSED 'O', should draw propagation {}", .{run_context.should_draw_propagation});
         }
 
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_S)) {
@@ -2001,7 +2001,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
                 .solution => .diff,
                 .diff => .none,
             };
-            std.log.info("PRESSED 'S', should draw solution {s}", .{solutionDrawMode});
+            std.log.info("PRESSED 'S', should draw solution {}", .{solutionDrawMode});
         }
 
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_P)) {
@@ -2020,8 +2020,8 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
 
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_LEFT)) {
             std.log.info("PRESSED 'LEFT'", .{});
-            const rewind_index = @minimum(
-                @minimum(run_context.rewind_index + 1, max_rewinds - 1),
+            const rewind_index = @min(
+                @min(run_context.rewind_index + 1, max_rewinds - 1),
                 run_context.iters.load(.SeqCst),
             );
             run_context.rewind_index = rewind_index;
@@ -2062,7 +2062,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
         defer prev_mouse_position = mouse_position;
 
         camera.zoom += rl.GetMouseWheelMove() * 0.05;
-        if (rl.IsMouseButtonDown(rl.MouseButton.MOUSE_LEFT_BUTTON)) {
+        if (rl.IsMouseButtonDown(rl.MouseButton.MOUSE_BUTTON_LEFT)) {
             const delta_x = mouse_position.x - prev_mouse_position.x;
             const delta_y = mouse_position.y - prev_mouse_position.y;
             camera.target = rl.Vector2{
@@ -2218,7 +2218,7 @@ fn resetCamera(desc: Description, camera: *rl.Camera2D) void {
     const board_height = @intToFloat(f32, desc.n_rows) * cell_size_float;
     const width_scale_factor = screenWidth / board_width;
     const height_scale_factor = screenHeight / board_height;
-    camera.zoom = @minimum(@minimum(width_scale_factor, height_scale_factor), 1.0);
+    camera.zoom = @min(@min(width_scale_factor, height_scale_factor), 1.0);
     camera.target = .{ .x = 0, .y = 0 };
     camera.offset = .{ .x = 0, .y = 0 };
 }
@@ -2250,17 +2250,16 @@ fn drawDebugOverlay(
         }
     };
     const printer = Printer{ .allocator = allocator };
-    const format = printer.printLine;
     const strs = [_][]const u8 {
-        format("index: {d}/{d}", .{drawIndex, n_kakuros}),
-        format("iters: {d}", .{run_context.iters.load(.SeqCst) - run_context.rewind_index}),
-        format("speed: {d}x", .{run_context.sleep_time_multiplier}),
-        format("rewind: {d}", .{run_context.rewind_index}),
-        format("solution: {s}", .{@tagName(solutionDrawMode)}),
-        format("candidates: {}", .{shouldDrawCandidates}),
-        format("consistent: {s}", .{run_context.consistent.load(.SeqCst)}),
-        format("paused: {d}", .{run_context.paused != 0}),
-        format("x {d} y {d}", .{@floatToInt(isize, mouse_position.x), @floatToInt(isize, mouse_position.y)}),
+        printer.printLine("index: {d}/{d}", .{drawIndex, n_kakuros}),
+        printer.printLine("iters: {d}", .{run_context.iters.load(.SeqCst) - run_context.rewind_index}),
+        printer.printLine("speed: {d}x", .{run_context.sleep_time_multiplier}),
+        printer.printLine("rewind: {d}", .{run_context.rewind_index}),
+        printer.printLine("solution: {s}", .{@tagName(solutionDrawMode)}),
+        printer.printLine("candidates: {}", .{shouldDrawCandidates}),
+        printer.printLine("consistent: {}", .{run_context.consistent.load(.SeqCst)}),
+        printer.printLine("paused: {}", .{run_context.paused != 0}),
+        printer.printLine("x {d} y {d}", .{@floatToInt(isize, mouse_position.x), @floatToInt(isize, mouse_position.y)}),
     };
 
     const font_size = 36;
@@ -2416,7 +2415,6 @@ fn drawCandidates(desc: Description, state: *const State, propagations: ?std.Aut
 }
 
 fn drawCandidatesForCell(x: usize, y: usize, candidates: Candidates, old: ?Candidates) void {
-    _ = old;
     const fontSize = 20;
     const unit = cellSize / 3;
     var i: u8 = 1;
@@ -2590,7 +2588,8 @@ fn drawNumberedBoxInvert(x: usize, y: usize, number: usize, fillUpper: bool) voi
 
 fn solve(allocator: Allocator, descriptions: []const Description) !void {
     const kakuros = try createKakuros(allocator, descriptions);
-    var runner = try Runner.init(allocator, kakuros, {});
+    var run_context = {};
+    var runner = try Runner.init(allocator, kakuros, &run_context);
     try runner.runAll();
     // try runner.report();
 }
@@ -2598,10 +2597,6 @@ fn solve(allocator: Allocator, descriptions: []const Description) !void {
 fn checkPlatformSupport() void {
     const builtin = @import("builtin");
     const os = builtin.os.tag;
-    const arch = builtin.cpu.arch;
-    if (os == .macos and arch == .aarch64) {
-        @compileError("zig-kakuro's GUI does not work on macOS aarch64 due to https://github.com/ziglang/zig/issues/1481. Stay tuned for stage2!");
-    }
     if (os == .windows) {
         std.log.warn("========================================= WARNING =============================================", .{});
         std.log.warn("zig-kakuro's GUI has known issues on Windows, see https://github.com/schmee/zig-kakuro/issues/1", .{});
@@ -2610,7 +2605,7 @@ fn checkPlatformSupport() void {
 }
 
 pub fn main() !void {
-    std.log.info("mode {}", .{build_options.mode});
+    std.log.info("mode {s}", .{@tagName(build_options.mode)});
     if (build_options.mode == .gui)
         checkPlatformSupport();
 
