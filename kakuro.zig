@@ -24,6 +24,8 @@ const StaticBitSet = std.bit_set.StaticBitSet;
 const DynamicBitSet = std.bit_set.DynamicBitSet;
 const Random = std.rand.Random;
 
+const Color = rl.Color;
+
 
 // ================================ SOLVER STUFF ================================
 // ==============================================================================
@@ -39,8 +41,10 @@ const Random = std.rand.Random;
 /// propagation". The "depth first search" part is implemented in `search` and
 /// the "constraint propagation" part is `Line.remove_candidate_and_propagate`,
 /// so those are both good places to start to see how the solver works.
-
-pub const log_level: std.log.Level = .info;
+pub const std_options = struct {
+    pub const fmt_max_depth = 10;
+    pub const log_level = .info;
+};
 const has_gui = build_options.mode == .gui;
 
 const WALL: u8 = 10;
@@ -116,11 +120,11 @@ const State = struct {
                 if (c != WALL) n_cells += 1;
             }
             var all_candidates = try allocator.alloc(Candidates, n_cells);
-            mem.set(Candidates, all_candidates, .{ .cs = 0b111_111_111 });
+            @memset(all_candidates, .{ .cs = 0b111_111_111 });
             break :blk all_candidates;
         };
 
-        var state = Self {
+        var state = Self{
             .candidates = candidates,
             .n_filled = 0,
             .move_index = null,
@@ -165,7 +169,7 @@ const State = struct {
     }
 
     fn clone(self: Self, allocator: Allocator, move_index: ?u16) !State {
-        return Self {
+        return Self{
             .candidates = try allocator.dupe(Candidates, self.candidates),
             .n_filled = self.n_filled,
             .move_index = move_index,
@@ -231,7 +235,7 @@ const Candidates = struct {
 
     fn is_candidate(self: Self, val: u8) bool {
         assert(val > 0 and val <= max_candidates);
-        return ((self.cs >> @intCast(u4, val - 1)) & 1) == 1;
+        return ((self.cs >> @as(u4, @intCast(val - 1))) & 1) == 1;
     }
 
     fn get_unique(self: Self) u8 {
@@ -241,7 +245,7 @@ const Candidates = struct {
 
     fn set_unique(self: *Self, val: u8) void {
         assert(self.is_candidate(val));
-        self.cs = (@as(Int, 1) << @intCast(u4, val - 1));
+        self.cs = (@as(Int, 1) << @as(u4, @intCast(val - 1)));
     }
 
     fn set_filled(self: *Self) void {
@@ -282,7 +286,7 @@ const Candidates = struct {
             const first: u4 = @ctz(self.cs);
             self.total += first + 1;
             if (self.total > max_candidates) return null;
-            self.cs >>= @intCast(u4, first + 1);
+            self.cs >>= @as(u4, @intCast(first + 1));
             return self.total;
         }
     };
@@ -305,7 +309,7 @@ fn zero_above_inclusive(n: Candidates.Int) Candidates.Int {
     // TODO figure out how to remove this branch
     if (n >= max_candidates) return 0b111_111_111;
     const one = @as(Candidates.Int, 1);
-    return 0b111_111_111 & ((one << @intCast(u4, n))  -| 1);
+    return 0b111_111_111 & ((one << @as(u4, @intCast(n))) -| 1);
 }
 
 /// Sets all bits below `n` to 0.
@@ -327,7 +331,7 @@ fn line_constraints_mask(line_len: u8, line_constraint: u8) Candidates.Int {
 /// Same as `line_constraints_mask` but also removes a specific candidate.
 fn candidates_mask(line_len: u8, line_constraint: u8, candidate_to_remove: u8) Candidates.Int {
     const start_mask = line_constraints_mask(line_len, line_constraint);
-    const candidate_mask = ~@as(Candidates.Int, 0) ^ (@as(Candidates.Int, 1) << @intCast(u4, candidate_to_remove - 1));
+    const candidate_mask = ~@as(Candidates.Int, 0) ^ (@as(Candidates.Int, 1) << @as(u4, @intCast(candidate_to_remove - 1)));
     const out = start_mask & candidate_mask;
     // log.debug("candidates_mask >> len {d} constraint {d} val {d} ub {d} lb {d} ma {b:9} mb {b:9} val_mask {b:9} out {b:9}\n", .{line_len, line_constraint, val_to_remove, ub, lb, ma, mb, val_mask, out});
     return out;
@@ -351,7 +355,7 @@ fn computeLineState(state: *const State, line: Line) LineState {
         const cnds = state.candidates[index];
         if (cnds.is_filled()) {
             const val = state.get(index);
-            sum += @intCast(u8, val);
+            sum += @as(u8, @intCast(val));
             n_filled += 1;
         } else {
             empty_indices.append(index) catch unreachable;
@@ -501,7 +505,7 @@ fn compute_lines(
     const index_to_cell_index = try allocator.alloc(u16, board_size);
     {
         var cindex: u16 = 0;
-        for (board) |c, i| {
+        for (board, 0..) |c, i| {
             if (c != WALL) {
                 index_to_cell_index[i] = cindex;
                 cindex += 1;
@@ -543,8 +547,8 @@ fn compute_lines(
                 else
                     prev_index;
 
-                const row = Line {
-                    .id = @intCast(u16, lines.items.len),
+                const row = Line{
+                    .id = @as(u16, @intCast(lines.items.len)),
                     .indices = indices,
                     .len = len,
                     .constraint = row_constraints[constraint_index],
@@ -592,8 +596,8 @@ fn compute_lines(
                 else
                     prev_index;
 
-                const col = Line {
-                    .id = @intCast(u16, lines.items.len),
+                const col = Line{
+                    .id = @as(u16, @intCast(lines.items.len)),
                     .indices = indices,
                     .len = len,
                     .constraint = col_constraints[constraint_index],
@@ -615,14 +619,14 @@ fn compute_lines(
         while (j < n_cells) : (j += 1) {
             const row = index_to_lines_rows[j];
             const col = index_to_lines_cols[j];
-            index_to_lines[j] = LinePair {
+            index_to_lines[j] = LinePair{
                 .row = row,
                 .col = col,
             };
         }
     }
 
-    return PrecomputedLines {
+    return PrecomputedLines{
         .lines = try lines.toOwnedSlice(),
         .index_to_lines = index_to_lines,
     };
@@ -727,7 +731,7 @@ const SearchResult = struct {
     }
 
     fn iters_per_second(self: Self) f64 {
-        return @intToFloat(f64, self.iters) / (@intToFloat(f64, self.elapsed()) / time.ns_per_s);
+        return @as(f64, @floatFromInt(self.iters)) / (@as(f64, @floatFromInt(self.elapsed())) / time.ns_per_s);
     }
 };
 
@@ -1023,11 +1027,11 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
 
     var iters: usize = 0;
     var current: State = undefined;
-    var result = SearchResult {
+    var result = SearchResult{
         .allocator = allocator,
         .solution = null,
         .iters = undefined,
-        .start_time = @intCast(i64, time.nanoTimestamp()),
+        .start_time = @as(i64, @intCast(time.nanoTimestamp())),
         .end_time = undefined,
     };
 
@@ -1096,7 +1100,7 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
             solution_ptr.* = try current.clone(allocator, 0);
             result.solution = solution_ptr;
             result.iters = iters;
-            result.end_time = @intCast(i64, time.nanoTimestamp());
+            result.end_time = @as(i64, @intCast(time.nanoTimestamp()));
 
             if (has_gui) {
                 var draw_solution = try allocator.create(State);
@@ -1106,7 +1110,6 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
 
             return result;
         }
-
 
         // ================================= Exact line solving =================================
         //
@@ -1136,7 +1139,6 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
         // If none of this works, we fall back to a looking for the cell with the fewest candidates,
         // trying each move in turn.
 
-
         // 1. Solve lines of length 2 exactly.
         var it = current.twomove.iterator(.{});
         var two_move_one: ?TwoMove = null;
@@ -1147,7 +1149,7 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
             const line_state = computeLineState(&current, line);
             const moves = try solve_line_exactly_two(&current, line_state);
 
-            switch(moves.len) {
+            switch (moves.len) {
                 0 => continue :search, // current state is a dead end
                 1 => {
                     two_move_one = moves.get(0);
@@ -1177,7 +1179,7 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
             const line_state = computeLineState(&current, line);
             const moves = try solve_line_exactly_three(&current, line_state);
 
-            switch(moves.len) {
+            switch (moves.len) {
                 0 => continue :search, // current state is a dead end
                 1 => {
                     three_move_one = moves.get(0);
@@ -1207,7 +1209,7 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
             const line_state = computeLineState(&current, line);
             const moves = try solve_line_exactly_four(&current, line_state);
 
-            switch(moves.len) {
+            switch (moves.len) {
                 0 => continue :search, // current state is a dead end
                 1 => {
                     four_move_one = moves.get(0);
@@ -1238,7 +1240,7 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
             const line_state = computeLineState(&current, line);
             const moves = try solve_line_exactly_five(&current, line_state);
 
-            switch(moves.len) {
+            switch (moves.len) {
                 0 => continue :search, // current state is a dead end
                 1 => {
                     five_move_one = moves.get(0);
@@ -1256,7 +1258,7 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
             const clone = try cloneAndMove(FiveMove, allocator, &current, move);
             try stack.append(clone);
             continue :search;
-        // We found a length 5 line with a 50/50, add both moves and continue
+            // We found a length 5 line with a 50/50, add both moves and continue
         } else if (five_move_two) |moves| {
             for (moves) |move| {
                 const clone = try cloneAndMove(FiveMove, allocator, &current, move);
@@ -1298,12 +1300,12 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
         var best_index: u16 = 0;
         var best_cell: Candidates = undefined;
         var best_count: u8 = 10;
-        for (current.candidates) |cnds, i| {
+        for (current.candidates, 0..) |cnds, i| {
             if (current.is_filled(i)) continue;
             const count = cnds.count();
 
             if (count > 1 and count < best_count) {
-                best_index = @intCast(u16, i);
+                best_index = @as(u16, @intCast(i));
                 best_cell = cnds;
                 best_count = count;
             }
@@ -1326,7 +1328,7 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
     }
 
     result.iters = iters;
-    result.end_time = @intCast(i64, time.nanoTimestamp());
+    result.end_time = @as(i64, @intCast(time.nanoTimestamp()));
     return result;
 }
 
@@ -1359,7 +1361,7 @@ fn parse_descriptions(allocator: Allocator, path: []const u8) ![]Description {
             break;
     }
 
-    while(rows.index != null) {
+    while (rows.index != null) {
         var desc = try parse_description(allocator, &rows);
         try descriptions.append(desc);
         _ = rows.next();
@@ -1367,7 +1369,7 @@ fn parse_descriptions(allocator: Allocator, path: []const u8) ![]Description {
     return descriptions.toOwnedSlice();
 }
 
-fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8)) !Description {
+fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8, .sequence)) !Description {
     var n_rows: usize = undefined;
     var n_cols: usize = undefined;
     {
@@ -1383,7 +1385,7 @@ fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8)) !Descri
                     0 => n = try std.fmt.parseInt(usize, c, 10),
                     1 => n_rows = try std.fmt.parseInt(u8, c, 10),
                     2 => n_cols = try std.fmt.parseInt(u8, c, 10),
-                    else => {}
+                    else => {},
                 }
             }
             assert(j == 3);
@@ -1411,7 +1413,7 @@ fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8)) !Descri
             1 => &row_constraints,
             2 => &col_constraints,
             3 => &solution,
-            else => unreachable
+            else => unreachable,
         };
         var inner_row = mem.split(u8, row, " ");
         while (inner_row.next()) |d| {
@@ -1428,7 +1430,7 @@ fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8)) !Descri
 
     var state_index_to_board_index = std.ArrayList(usize).init(allocator);
     {
-        for (board.items) |b, j| {
+        for (board.items, 0..) |b, j| {
             if (b != 0) continue;
             try state_index_to_board_index.append(j);
         }
@@ -1448,7 +1450,7 @@ fn parse_description(allocator: Allocator, rows: *mem.SplitIterator(u8)) !Descri
 fn createKakuros(allocator: Allocator, descriptions: []const Description) ![]Kakuro {
     var kakuros = try allocator.alloc(Kakuro, descriptions.len);
 
-    for (descriptions) |desc, i| {
+    for (descriptions, 0..) |desc, i| {
         const n_cells = blk: {
             var n: usize = 0;
             for (desc.board) |c| {
@@ -1457,7 +1459,7 @@ fn createKakuros(allocator: Allocator, descriptions: []const Description) ![]Kak
             break :blk n;
         };
 
-        const aux_data = AuxData {
+        const aux_data = AuxData{
             .board = desc.board,
             .n_rows = desc.n_rows,
             .n_cols = desc.n_cols,
@@ -1469,7 +1471,7 @@ fn createKakuros(allocator: Allocator, descriptions: []const Description) ![]Kak
             ),
         };
         const state = try State.init(allocator, aux_data);
-        kakuros[i]  = Kakuro{
+        kakuros[i] = Kakuro{
             .state = state,
             .aux_data = aux_data,
         };
@@ -1503,7 +1505,7 @@ const Searcher = struct {
         var stats = Stats{};
         var max_iters = self.max_iters_per_search;
         while (true) {
-            const opts = SearchOpts {
+            const opts = SearchOpts{
                 .max_iters = max_iters,
             };
 
@@ -1519,12 +1521,11 @@ const Searcher = struct {
                 stats.total_iters += result.iters;
                 stats.total_time += result.elapsed();
 
-                if(result.solution) |solution| {
+                if (result.solution) |solution| {
                     _ = solution;
-                    logger.info("SOLVED >>> iters {d:^2} iters/s {d:^10.2} time {s}", .{result.iters, result.iters_per_second(), fmt.fmtDurationSigned(result.elapsed())});
-                }
-                else {
-                    logger.info("{d}/{d} ### FAILED ### >>> iters {d} iters/s {d} time {s}", .{i + 1, self.max_retries, result.iters, result.iters_per_second(), fmt.fmtDurationSigned(result.elapsed())});
+                    logger.info("SOLVED >>> iters {d:^2} iters/s {d:^10.2} time {s}", .{ result.iters, result.iters_per_second(), fmt.fmtDurationSigned(result.elapsed()) });
+                } else {
+                    logger.info("{d}/{d} ### FAILED ### >>> iters {d} iters/s {d} time {s}", .{ i + 1, self.max_retries, result.iters, result.iters_per_second(), fmt.fmtDurationSigned(result.elapsed()) });
                 }
                 return result;
             } else {
@@ -1533,7 +1534,7 @@ const Searcher = struct {
                 max_iters *= 2;
                 if (max_iters > self.max_iters_total)
                     break;
-                logger.info("max iters {d} -> {d}\n", .{old_max_iters, max_iters});
+                logger.info("max iters {d} -> {d}\n", .{ old_max_iters, max_iters });
                 return null;
             }
         }
@@ -1556,7 +1557,7 @@ const Runner = struct {
     fn init(allocator: Allocator, kakuros: []Kakuro, run_context: *RunContext) !Self {
         var stack = try allocator.create(ArrayList(State));
         stack.* = ArrayList(State).init(allocator);
-        return Self {
+        return Self{
             .kakuros = kakuros,
             .allocator = allocator,
             .stack = stack,
@@ -1570,7 +1571,7 @@ const Runner = struct {
         logger.info("#{d} Running...", .{index});
         var searcher = create_searcher(self, index - 1);
         const search_result = try searcher.do_search(self.allocator);
-        if(search_result) |sr| {
+        if (search_result) |sr| {
             if (sr.solution) |s| {
                 self.solution = s.*;
             }
@@ -1590,7 +1591,7 @@ const Runner = struct {
     }
 
     fn create_searcher(self: *Self, index: usize) Searcher {
-        return Searcher {
+        return Searcher{
             .kakuro = self.kakuros[index],
             .stack = self.stack,
             .max_iters_total = 15_000_000,
@@ -1603,11 +1604,11 @@ const Runner = struct {
     fn report(self: Self) !void {
         var w = std.io.getStdOut().writer();
         try w.print("index,iters,time_ns\n", .{});
-        for (self.search_results) |result, i| {
+        for (self.search_results, 0..) |result, i| {
             if (result) |r| {
-                try w.print("{d},{d},{d}\n", .{i + 1, r.iters, r.elapsed()});
+                try w.print("{d},{d},{d}\n", .{ i + 1, r.iters, r.elapsed() });
             } else {
-                try w.print("{d},{d},{d}\n", .{i + 1, -1, -1});
+                try w.print("{d},{d},{d}\n", .{ i + 1, -1, -1 });
             }
         }
     }
@@ -1617,7 +1618,7 @@ fn display_board(state: State, aux_data: AuxData) void {
     const board = aux_data.board;
     const candidates = state.candidates;
     var cindex: usize = 0;
-    for (board) |c, i| {
+    for (board, 0..) |c, i| {
         if (c == WALL) {
             debug.print("  -", .{});
         } else {
@@ -1695,7 +1696,6 @@ fn printSizes() void {
     printInfo(Line);
     printInfo(LinePair);
 }
-
 
 // ================================== GUI STUFF =================================
 // ==============================================================================
@@ -1834,21 +1834,21 @@ const screenWidth = 1200;
 const screenHeight = 950;
 
 fn numberKeyWasPressed() ?rl.KeyboardKey {
-    const keys = [_]rl.KeyboardKey {
-        rl.KeyboardKey.KEY_ZERO,
-        rl.KeyboardKey.KEY_ONE,
-        rl.KeyboardKey.KEY_TWO,
-        rl.KeyboardKey.KEY_THREE,
-        rl.KeyboardKey.KEY_FOUR,
-        rl.KeyboardKey.KEY_FIVE,
-        rl.KeyboardKey.KEY_SIX,
-        rl.KeyboardKey.KEY_SEVEN,
-        rl.KeyboardKey.KEY_EIGHT,
-        rl.KeyboardKey.KEY_NINE,
+    const keys = [_]rl.KeyboardKey{
+        .key_zero,
+        .key_one,
+        .key_two,
+        .key_three,
+        .key_four,
+        .key_five,
+        .key_six,
+        .key_seven,
+        .key_eight,
+        .key_nine,
     };
 
     for (keys) |k| {
-        if (rl.IsKeyPressed(k))
+        if (rl.isKeyPressed(k))
             return k;
     }
     return null;
@@ -1880,7 +1880,7 @@ fn createRunContext(
         .sleep_time_ns = 500_000_000,
     };
     runner.* = try Runner.init(allocator, kakuros, run_context);
-    tid.* = try std.Thread.spawn(.{}, Runner.runOne, .{runner, drawIndex});
+    tid.* = try std.Thread.spawn(.{}, Runner.runOne, .{ runner, drawIndex });
     should_reset_camera.* = true;
 }
 
@@ -1901,14 +1901,13 @@ fn recreateRunContext(
     try createRunContext(allocator, kakuros, drawIndex, run_context, runner, tid, should_reset_camera);
 }
 
-
 // TODO: replace haphazard thread safety with something that actually works
 fn runGui(allocator: Allocator, descriptions: []const Description) !void {
     // Initialization
     //--------------------------------------------------------------------------------------
 
-    rl.InitWindow(screenWidth, screenHeight, "zig-kakuro");
-    rl.SetTargetFPS(60);
+    rl.initWindow(screenWidth, screenHeight, "zig-kakuro");
+    rl.setTargetFPS(60);
 
     const useCamera = true;
     var drawIndex: usize = 1;
@@ -1937,65 +1936,65 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
         .zoom = 0.8,
     };
 
-    var prev_mouse_position = rl.GetMousePosition();
+    var prev_mouse_position = rl.getMousePosition();
 
-    while (!rl.WindowShouldClose()) {
+    while (!rl.windowShouldClose()) {
         should_reset_camera = false;
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_M)) {
+        if (rl.isKeyPressed(.key_m)) {
             std.log.info("PRESSED 'M'", .{});
             shouldDrawHelpOverlay = !shouldDrawHelpOverlay;
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_D)) {
+        if (rl.isKeyPressed(.key_d)) {
             std.log.info("PRESSED 'D'", .{});
             shouldDrawDebugOverlay = !shouldDrawDebugOverlay;
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_Z)) {
+        if (rl.isKeyPressed(.key_z)) {
             std.log.info("PRESSED 'Z'", .{});
             should_reset_camera = true;
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_U)) {
+        if (rl.isKeyPressed(.key_u)) {
             if (drawIndex > 0) drawIndex -= 1;
             std.log.info("PRESSED 'U', index {d}", .{drawIndex});
             try recreateRunContext(allocator, kakuros, drawIndex, &run_context, &runner, &tid, &should_reset_camera);
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_I)) {
+        if (rl.isKeyPressed(.key_i)) {
             if (drawIndex < descriptions.len) drawIndex += 1;
             std.log.info("PRESSED 'I', index {d}", .{drawIndex});
 
             try recreateRunContext(allocator, kakuros, drawIndex, &run_context, &runner, &tid, &should_reset_camera);
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_H)) {
+        if (rl.isKeyPressed(.key_h)) {
             run_context.sleep_time_multiplier = @max(run_context.sleep_time_multiplier / 2, 1);
             std.log.info("PRESSED 'H', speed {d}", .{run_context.sleep_time_multiplier});
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_L)) {
+        if (rl.isKeyPressed(.key_l)) {
             run_context.sleep_time_multiplier *= 2;
             std.log.info("PRESSED 'L', speed {d}", .{run_context.sleep_time_multiplier});
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_C)) {
+        if (rl.isKeyPressed(.key_c)) {
             shouldDrawCandidates = !shouldDrawCandidates;
             std.log.info("PRESSED 'C', should draw candidates {}", .{shouldDrawCandidates});
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_X)) {
+        if (rl.isKeyPressed(.key_x)) {
             shouldDrawCandidateIndexes = !shouldDrawCandidateIndexes;
             std.log.info("PRESSED 'X', should draw candidate indexes {}", .{shouldDrawCandidateIndexes});
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_O)) {
+        if (rl.isKeyPressed(.key_o)) {
             _ = @atomicRmw(u8, &run_context.should_draw_propagation, .Xor, 1, .SeqCst);
             std.log.info("PRESSED 'O', should draw propagation {}", .{run_context.should_draw_propagation});
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_S)) {
+        if (rl.isKeyPressed(.key_s)) {
             solutionDrawMode = switch (solutionDrawMode) {
                 .none => .solution,
                 .solution => .diff,
@@ -2004,7 +2003,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
             std.log.info("PRESSED 'S', should draw solution {}", .{solutionDrawMode});
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_P)) {
+        if (rl.isKeyPressed(.key_p)) {
             std.log.info("PRESSED 'P', paused {d}", .{run_context.paused});
             run_context.rewind_index = 0;
             const old = @atomicRmw(u8, &run_context.paused, .Xor, 1, .SeqCst);
@@ -2013,12 +2012,12 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
             }
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_R)) {
+        if (rl.isKeyPressed(.key_r)) {
             std.log.info("PRESSED 'R'", .{});
             try recreateRunContext(allocator, kakuros, drawIndex, &run_context, &runner, &tid, &should_reset_camera);
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_LEFT)) {
+        if (rl.isKeyPressed(.key_left)) {
             std.log.info("PRESSED 'LEFT'", .{});
             const rewind_index = @min(
                 @min(run_context.rewind_index + 1, max_rewinds - 1),
@@ -2028,29 +2027,29 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
             run_context.state = run_context.rewinds.get(run_context.rewind_index);
         }
 
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_RIGHT)) {
+        if (rl.isKeyPressed(.key_right)) {
             std.log.info("PRESSED 'RIGHT'", .{});
             run_context.rewind_index -|= 1;
             run_context.state = run_context.rewinds.get(run_context.rewind_index);
         }
 
         if (numberKeyWasPressed()) |key| {
-            const number = @intCast(u8, @enumToInt(key));
+            const number = @as(u8, @intCast(@intFromEnum(key)));
             std.log.info("PRESSED '{d}'", .{number});
             if (!shouldDrawIndexOverlay) {
                 shouldDrawIndexOverlay = true;
-                indexOverlayInputStartTime = rl.GetTime();
+                indexOverlayInputStartTime = rl.getTime();
             }
             try keyBuffer.append(number);
         }
 
-        if (shouldDrawIndexOverlay and (keyBuffer.len == 3 or rl.GetTime() - indexOverlayInputStartTime > 0.7)) {
+        if (shouldDrawIndexOverlay and (keyBuffer.len == 3 or rl.getTime() - indexOverlayInputStartTime > 0.7)) {
             defer {
                 keyBuffer = std.BoundedArray(u8, 3).init(0) catch unreachable;
                 shouldDrawIndexOverlay = false;
             }
 
-            const index = std.fmt.parseInt(usize, keyBuffer.constSlice() , 10) catch unreachable;
+            const index = std.fmt.parseInt(usize, keyBuffer.constSlice(), 10) catch unreachable;
             if (index > 0 and index <= kakuros.len) {
                 drawIndex = index;
                 try recreateRunContext(allocator, kakuros, drawIndex, &run_context, &runner, &tid, &should_reset_camera);
@@ -2058,17 +2057,16 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
             }
         }
 
-        const mouse_position = rl.GetMousePosition();
+        const mouse_position = rl.getMousePosition();
         defer prev_mouse_position = mouse_position;
 
-        camera.zoom += rl.GetMouseWheelMove() * 0.05;
-        if (rl.IsMouseButtonDown(rl.MouseButton.MOUSE_BUTTON_LEFT)) {
+        camera.zoom += rl.getMouseWheelMove() * 0.05;
+        if (rl.isMouseButtonDown(rl.MouseButton.mouse_button_left)) {
             const delta_x = mouse_position.x - prev_mouse_position.x;
             const delta_y = mouse_position.y - prev_mouse_position.y;
             camera.target = rl.Vector2{
                 .x = camera.target.x - delta_x,
                 .y = camera.target.y - delta_y,
-
             };
         }
 
@@ -2079,10 +2077,10 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
             resetCamera(desc, &camera);
         }
 
-        rl.BeginDrawing();
-        rl.ClearBackground(rl.WHITE);
+        rl.beginDrawing();
+        rl.clearBackground(Color.white);
         if (useCamera)
-            rl.BeginMode2D(camera);
+            rl.beginMode2D(camera);
 
         const board = desc.board;
         const row_constraints = desc.row_constraints;
@@ -2090,7 +2088,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
         const n_cols = desc.n_cols;
         const n_rows = desc.n_rows;
 
-        for (board) |s, index| {
+        for (board, 0..) |s, index| {
             // std.log.info("index {d} cell {d}", .{index, s});
             const row = index / n_cols;
             const col = index % n_cols;
@@ -2100,7 +2098,6 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
                 drawOutOfBounds(col + 1, row + 1);
             }
         }
-
 
         var i: usize = 0;
         while (i < n_cols) : (i += 1) {
@@ -2113,7 +2110,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
         }
 
         var prev: usize = 0;
-        for (row_constraints) |constraint, index| {
+        for (row_constraints, 0..) |constraint, index| {
             const row = index / n_cols;
             const col = index % n_cols;
             if (prev != constraint) {
@@ -2150,7 +2147,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
                     const board_index = desc.state_index_to_board_index[index];
                     const row = board_index / desc.n_cols;
                     const col = board_index % desc.n_cols;
-                    drawCell(col + 1, row + 1, rl.Fade(rl.BLUE, 0.5));
+                    drawCell(col + 1, row + 1, rl.fade(Color.blue, 0.5));
                 }
             },
             .solution => drawSolution(desc),
@@ -2161,7 +2158,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
                     const board_index = desc.state_index_to_board_index[index];
                     const row = board_index / desc.n_cols;
                     const col = board_index % desc.n_cols;
-                    drawCell(col + 1, row + 1, rl.Fade(rl.BLUE, 0.5));
+                    drawCell(col + 1, row + 1, rl.fade(Color.blue, 0.5));
                 }
             },
         }
@@ -2184,7 +2181,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
         drawPropagations(desc, propagations);
 
         if (useCamera)
-            rl.EndMode2D();
+            rl.endMode2D();
 
         if (shouldDrawDebugOverlay) {
             drawDebugOverlay(allocator, &run_context, drawIndex, solutionDrawMode, shouldDrawCandidates, kakuros.len);
@@ -2199,23 +2196,23 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
         } else {
             const help = "Press 'M' for help";
             const font_size = 44;
-            rl.DrawText(help[0..], screenWidth - computeTextWidth(help[0..], font_size) - 20, screenHeight - 70, font_size, rl.RED);
+            rl.drawText(help[0..], screenWidth - computeTextWidth(help[0..], font_size) - 20, screenHeight - 70, font_size, Color.red);
         }
 
-        rl.EndDrawing();
+        rl.endDrawing();
         //----------------------------------------------------------------------------------
     }
 
     // De-Initialization
     //--------------------------------------------------------------------------------------
-    rl.CloseWindow(); // Close window and OpenGL context
+    rl.closeWindow(); // Close window and OpenGL context
     //--------------------------------------------------------------------------------------
 }
 
 fn resetCamera(desc: Description, camera: *rl.Camera2D) void {
-    const cell_size_float = @intToFloat(f32, cellSize);
-    const board_width = @intToFloat(f32, desc.n_cols) * cell_size_float;
-    const board_height = @intToFloat(f32, desc.n_rows) * cell_size_float;
+    const cell_size_float = @as(f32, @floatFromInt(cellSize));
+    const board_width = @as(f32, @floatFromInt(desc.n_cols)) * cell_size_float;
+    const board_height = @as(f32, @floatFromInt(desc.n_rows)) * cell_size_float;
     const width_scale_factor = screenWidth / board_width;
     const height_scale_factor = screenHeight / board_height;
     camera.zoom = @min(@min(width_scale_factor, height_scale_factor), 1.0);
@@ -2228,7 +2225,7 @@ fn drawPropagations(desc: Description, propagations: std.AutoArrayHashMap(usize,
         const board_index = desc.state_index_to_board_index[p];
         const row = board_index / desc.n_cols;
         const col = board_index % desc.n_cols;
-        drawCell(col + 1, row + 1, rl.Fade(rl.YELLOW, 0.3));
+        drawCell(col + 1, row + 1, rl.fade(Color.yellow, 0.3));
     }
 }
 
@@ -2241,17 +2238,17 @@ fn drawDebugOverlay(
     shouldDrawCandidates: bool,
     n_kakuros: usize,
 ) void {
-    const mouse_position = rl.GetMousePosition();
+    const mouse_position = rl.getMousePosition();
     const Printer = struct {
         allocator: Allocator,
         const Self = @This();
-        fn printLine(self: Self, comptime str: []const u8, args: anytype) []const u8 {
+        fn printLine(self: Self, comptime str: []const u8, args: anytype) [:0]const u8 {
             return std.fmt.allocPrintZ(self.allocator, str, args) catch unreachable;
         }
     };
     const printer = Printer{ .allocator = allocator };
-    const strs = [_][]const u8 {
-        printer.printLine("index: {d}/{d}", .{drawIndex, n_kakuros}),
+    const strs = [_][:0]const u8{
+        printer.printLine("index: {d}/{d}", .{ drawIndex, n_kakuros }),
         printer.printLine("iters: {d}", .{run_context.iters.load(.SeqCst) - run_context.rewind_index}),
         printer.printLine("speed: {d}x", .{run_context.sleep_time_multiplier}),
         printer.printLine("rewind: {d}", .{run_context.rewind_index}),
@@ -2259,7 +2256,7 @@ fn drawDebugOverlay(
         printer.printLine("candidates: {}", .{shouldDrawCandidates}),
         printer.printLine("consistent: {}", .{run_context.consistent.load(.SeqCst)}),
         printer.printLine("paused: {}", .{run_context.paused != 0}),
-        printer.printLine("x {d} y {d}", .{@floatToInt(isize, mouse_position.x), @floatToInt(isize, mouse_position.y)}),
+        printer.printLine("x {d} y {d}", .{ @as(isize, @intFromFloat(mouse_position.x)), @as(isize, @intFromFloat(mouse_position.y)) }),
     };
 
     const font_size = 36;
@@ -2268,35 +2265,35 @@ fn drawDebugOverlay(
     const width = 300 + padding * 2;
     const x_pos = screenWidth - width;
     const rec = rl.Rectangle{
-        .x = @intToFloat(f32, x_pos),
+        .x = @as(f32, @floatFromInt(x_pos)),
         .y = 0,
-        .width = @intToFloat(f32, width),
-        .height = @intToFloat(f32, offset * strs.len + 5),
+        .width = @as(f32, @floatFromInt(width)),
+        .height = @as(f32, @floatFromInt(offset * strs.len + 5)),
     };
-    rl.DrawRectangleRec(rec, rl.Fade(rl.BLACK, 0.8));
+    rl.drawRectangleRec(rec, rl.fade(Color.black, 0.8));
 
     var y_pos: c_int = 0;
     for (strs) |str| {
-        rl.DrawText(str.ptr, x_pos + padding, y_pos, font_size, rl.RED);
+        rl.drawText(str, x_pos + padding, y_pos, font_size, Color.red);
         y_pos += offset;
         allocator.free(str);
     }
 }
 
 fn drawHelpOverlay() void {
-    const rec = rl.Rectangle {
+    const rec = rl.Rectangle{
         .x = 0,
         .y = 0,
         .width = screenWidth,
         .height = screenHeight,
     };
-    rl.DrawRectangleRec(rec, rl.Fade(rl.BLACK, 0.8));
+    rl.drawRectangleRec(rec, rl.fade(Color.black, 0.8));
 
     const fontSize: u32 = 44;
     const padding: c_int = 20;
     var y_pos: c_int = padding;
 
-    const strs = [_][]const u8 {
+    const strs = [_][:0]const u8{
         "M - Show this menu",
         "[NUMBER] - Goto Kakuro",
         "P - Pause",
@@ -2316,34 +2313,34 @@ fn drawHelpOverlay() void {
     };
 
     for (strs) |str| {
-        rl.DrawText(str.ptr, padding, y_pos, fontSize, rl.WHITE);
+        rl.drawText(str, padding, y_pos, fontSize, Color.white);
         y_pos += fontSize + padding / 2;
     }
 }
 
 fn drawIndexOverlay(asciiNumbers: []const u8) void {
-    const rec = rl.Rectangle {
+    const rec = rl.Rectangle{
         .x = 0,
         .y = 0,
         .width = screenWidth,
         .height = screenHeight,
     };
-    rl.DrawRectangleRec(rec, rl.Fade(rl.BLACK, 0.8));
+    rl.drawRectangleRec(rec, rl.fade(Color.black, 0.8));
 
     var buf: [30:0]u8 = undefined;
     const str = std.fmt.bufPrintZ(&buf, "{s}", .{asciiNumbers}) catch unreachable;
     const fontSize: u32 = 188;
     const textSize = computeTextWidth(str, fontSize);
-    rl.DrawText(str.ptr, (screenWidth / 2) - @divFloor(textSize, 2), @divFloor(screenHeight, 2) - (fontSize - 2), fontSize, rl.WHITE);
+    rl.drawText(str, (screenWidth / 2) - @divFloor(textSize, 2), @divFloor(screenHeight, 2) - (fontSize - 2), fontSize, Color.white);
 }
 
-fn computeTextWidth(text: []const u8, fontSize: c_int) c_int {
-    return rl.MeasureText(text.ptr, fontSize);
+fn computeTextWidth(text: [:0]const u8, fontSize: c_int) c_int {
+    return rl.measureText(text, fontSize);
 }
 
 fn drawState(desc: Description, state: *const State) void {
     var stateIndex: usize = 0;
-    for (desc.board) |s, i| {
+    for (desc.board, 0..) |s, i| {
         if (s != 0) continue;
 
         const candidate = state.candidates[stateIndex];
@@ -2359,7 +2356,7 @@ fn drawState(desc: Description, state: *const State) void {
 }
 
 fn drawSolution(desc: Description) void {
-    for (desc.solution) |s, i| {
+    for (desc.solution, 0..) |s, i| {
         if (s == 0) continue;
 
         const row = i / desc.n_cols;
@@ -2370,7 +2367,7 @@ fn drawSolution(desc: Description) void {
 
 fn drawSolutionDiff(desc: Description, state: *const State) void {
     var stateIndex: usize = 0;
-    for (desc.solution) |s, i| {
+    for (desc.solution, 0..) |s, i| {
         if (s == 0) continue;
 
         const candidate = state.candidates[stateIndex];
@@ -2380,9 +2377,9 @@ fn drawSolutionDiff(desc: Description, state: *const State) void {
             const val = candidate.get_unique();
             const rec = rectangleForPoint(col + 1, row + 1);
             if (val == s) {
-                rl.DrawRectangleRec(rec, rl.Fade(rl.GREEN, 0.3));
+                rl.drawRectangleRec(rec, rl.fade(Color.green, 0.3));
             } else {
-                rl.DrawRectangleRec(rec, rl.Fade(rl.RED, 0.3));
+                rl.drawRectangleRec(rec, rl.fade(Color.red, 0.3));
             }
         }
         stateIndex += 1;
@@ -2392,7 +2389,7 @@ fn drawSolutionDiff(desc: Description, state: *const State) void {
 
 fn drawCandidates(desc: Description, state: *const State, propagations: ?std.AutoArrayHashMap(usize, Propagation)) void {
     var stateIndex: usize = 0;
-    for (desc.board) |s, i| {
+    for (desc.board, 0..) |s, i| {
         if (s != 0) continue;
 
         const candidate = state.candidates[stateIndex];
@@ -2418,17 +2415,12 @@ fn drawCandidatesForCell(x: usize, y: usize, candidates: Candidates, old: ?Candi
     const fontSize = 20;
     const unit = cellSize / 3;
     var i: u8 = 1;
-    const fx = @intToFloat(f32, x * cellSize);
-    const fy = @intToFloat(f32, y * cellSize);
-    const rec = rl.Rectangle {
-        .x = fx,
-        .y = fy,
-        .width = cellSize,
-        .height = cellSize
-    };
+    const fx = @as(f32, @floatFromInt(x * cellSize));
+    const fy = @as(f32, @floatFromInt(y * cellSize));
+    const rec = rl.Rectangle{ .x = fx, .y = fy, .width = cellSize, .height = cellSize };
     const count = candidates.count();
     if (count == 0) {
-        rl.DrawRectangleRec(rec, rl.Fade(rl.RED, 0.3));
+        rl.drawRectangleRec(rec, rl.fade(Color.red, 0.3));
     }
     var buf: [2:0]u8 = undefined;
     while (i <= max_candidates) : (i += 1) {
@@ -2436,23 +2428,23 @@ fn drawCandidatesForCell(x: usize, y: usize, candidates: Candidates, old: ?Candi
             const text = std.fmt.bufPrintZ(&buf, "{d}", .{i}) catch unreachable;
             const nudgeX = ((i - 1) % 3) * unit + 2;
             const nudgeY = ((i - 1) / 3) * unit + 1;
-            const innerX = @intCast(c_int, x * cellSize + nudgeX);
-            const innerY = @intCast(c_int, y * cellSize + nudgeY);
-            rl.DrawText(text.ptr,  innerX, innerY, fontSize, rl.GRAY);
+            const innerX = @as(c_int, @intCast(x * cellSize + nudgeX));
+            const innerY = @as(c_int, @intCast(y * cellSize + nudgeY));
+            rl.drawText(text, innerX, innerY, fontSize, Color.gray);
         } else if (!candidates.is_candidate(i) and old != null and old.?.is_candidate(i)) {
             const text = std.fmt.bufPrintZ(&buf, "{d}", .{i}) catch unreachable;
             const nudgeX = ((i - 1) % 3) * unit + 2;
             const nudgeY = ((i - 1) / 3) * unit + 1;
-            const innerX = @intCast(c_int, x * cellSize + nudgeX);
-            const innerY = @intCast(c_int, y * cellSize + nudgeY);
-            rl.DrawText(text.ptr,  innerX, innerY, fontSize, rl.GRAY);
-            const innerFx = @intToFloat(f32, x * cellSize + nudgeX);
-            const innerFy = @intToFloat(f32, y * cellSize + nudgeY);
-            rl.DrawLineEx(
-                rl.Vector2 { .x = innerFx, .y = innerFy },
-                rl.Vector2 { .x = innerFx + 10, .y = innerFy + 16 },
+            const innerX = @as(c_int, @intCast(x * cellSize + nudgeX));
+            const innerY = @as(c_int, @intCast(y * cellSize + nudgeY));
+            rl.drawText(text, innerX, innerY, fontSize, Color.gray);
+            const innerFx = @as(f32, @floatFromInt(x * cellSize + nudgeX));
+            const innerFy = @as(f32, @floatFromInt(y * cellSize + nudgeY));
+            rl.drawLineEx(
+                rl.Vector2{ .x = innerFx, .y = innerFy },
+                rl.Vector2{ .x = innerFx + 10, .y = innerFy + 16 },
                 3,
-                rl.RED,
+                Color.red,
             );
         }
     }
@@ -2461,7 +2453,7 @@ fn drawCandidatesForCell(x: usize, y: usize, candidates: Candidates, old: ?Candi
 fn drawCandidateIndexes(desc: Description, state: *const State) void {
     var stateIndex: usize = 0;
     const unit = cellSize / 3;
-    for (desc.board) |s, i| {
+    for (desc.board, 0..) |s, i| {
         if (s != 0) continue;
 
         const x = i % desc.n_cols + 1;
@@ -2471,10 +2463,10 @@ fn drawCandidateIndexes(desc: Description, state: *const State) void {
         const text = std.fmt.bufPrintZ(&buf, "{d}", .{stateIndex}) catch unreachable;
         const nudgeX = 2 * unit - 5;
         const nudgeY = 1;
-        const innerX = @intCast(c_int, x * cellSize + nudgeX);
-        const innerY = @intCast(c_int, y * cellSize + nudgeY);
+        const innerX = @as(c_int, @intCast(x * cellSize + nudgeX));
+        const innerY = @as(c_int, @intCast(y * cellSize + nudgeY));
 
-        rl.DrawText(text.ptr, innerX, innerY, 12, rl.GRAY);
+        rl.drawText(text, innerX, innerY, 12, Color.gray);
         stateIndex += 1;
         if (stateIndex == state.candidates.len) break;
     }
@@ -2484,103 +2476,101 @@ fn drawNumber(x: usize, y: usize, number: usize) void {
     const fontSize = 40;
     var buf: [2:0]u8 = undefined;
     const text = std.fmt.bufPrintZ(&buf, "{d}", .{number}) catch unreachable;
-    const textSize = rl.MeasureTextEx(rl.GetFontDefault(), text.ptr, fontSize, 0);
-    const paddingX = @divFloor(@intCast(c_int, cellSize) - @divFloor(@floatToInt(c_int, textSize.x), 2), 2);
-    const paddingY = @divFloor(@intCast(c_int, cellSize) - @divFloor(@floatToInt(c_int, textSize.y), 2), 4);
-    rl.DrawText(text.ptr, @intCast(c_int, x * cellSize) + paddingX, @intCast(c_int, y * cellSize) + paddingY, fontSize, rl.BLACK);
+    const textSize = rl.measureTextEx(rl.getFontDefault(), text, fontSize, 0);
+    const paddingX = @divFloor(@as(c_int, @intCast(cellSize)) - @divFloor(@as(c_int, @intFromFloat(textSize.x)), 2), 2);
+    const paddingY = @divFloor(@as(c_int, @intCast(cellSize)) - @divFloor(@as(c_int, @intFromFloat(textSize.y)), 2), 4);
+    rl.drawText(text, @as(c_int, @intCast(x * cellSize)) + paddingX, @as(c_int, @intCast(y * cellSize)) + paddingY, fontSize, Color.black);
 }
 
 fn drawEmptyCell(x: usize, y: usize) void {
-    drawCell(x, y, rl.WHITE);
+    drawCell(x, y, Color.white);
 }
 
 fn drawOutOfBounds(x: usize, y: usize) void {
-    drawCell(x, y, rl.BLACK);
+    drawCell(x, y, Color.black);
 }
 
 fn drawCell(x: usize, y: usize, color: rl.Color) void {
     const rec = rectangleForPoint(x, y);
-    rl.DrawRectangleRec(rec, color);
-    rl.DrawRectangleLinesEx(rec, 1, rl.BLACK);
+    rl.drawRectangleRec(rec, color);
+    rl.drawRectangleLinesEx(rec, 1, Color.black);
 }
 
 fn rectangleForPoint(x: usize, y: usize) rl.Rectangle {
-    return rl.Rectangle {
-        .x = @intToFloat(f32, x * cellSize),
-        .y = @intToFloat(f32, y * cellSize),
+    return rl.Rectangle{
+        .x = @as(f32, @floatFromInt(x * cellSize)),
+        .y = @as(f32, @floatFromInt(y * cellSize)),
         .width = cellSize,
         .height = cellSize,
     };
 }
 
 fn drawNumberedBox(x: usize, y: usize, number: usize, fillLower: bool) void {
-    const max = @intToFloat(f32, cellSize);
-    const posX = @intToFloat(f32, x * cellSize);
-    const posY = @intToFloat(f32, y * cellSize);
-    rl.DrawTriangle(
+    const max = @as(f32, @floatFromInt(cellSize));
+    const posX = @as(f32, @floatFromInt(x * cellSize));
+    const posY = @as(f32, @floatFromInt(y * cellSize));
+    rl.drawTriangle(
         .{ .x = max + posX, .y = max + posY },
-        .{ .x = max + posX, .y = 0   + posY },
-        .{ .x = 0   + posX, .y = 0   + posY },
-        rl.WHITE,
+        .{ .x = max + posX, .y = 0 + posY },
+        .{ .x = 0 + posX, .y = 0 + posY },
+        Color.white,
     );
 
     // const nudge = 5;
-    const centerX = @floatToInt(c_int, (max + max + 0 + posX * 3) / 3);
-    const centerY = @floatToInt(c_int, (max + 0 + 0 + posY * 3) / 3);
+    const centerX = @as(c_int, @intFromFloat((max + max + 0 + posX * 3) / 3));
+    const centerY = @as(c_int, @intFromFloat((max + 0 + 0 + posY * 3) / 3));
     var buf: [30:0]u8 = undefined;
     const text = std.fmt.bufPrintZ(&buf, "{d}", .{number}) catch unreachable;
-    rl.DrawText(text.ptr, centerX - 5, centerY - 13, 20, rl.BLACK);
+    rl.drawText(text, centerX - 5, centerY - 13, 20, Color.black);
 
     if (fillLower) {
-        rl.DrawTriangle(
+        rl.drawTriangle(
             .{ .x = max + posX, .y = max + posY },
-            .{ .x = 0   + posX, .y = 0   + posY },
-            .{ .x = 0   + posX, .y = max + posY },
-            rl.BLACK,
+            .{ .x = 0 + posX, .y = 0 + posY },
+            .{ .x = 0 + posX, .y = max + posY },
+            Color.black,
         );
     }
 
     const rec = rectangleForPoint(x, y);
-    rl.DrawRectangleLinesEx(rec, 1, rl.BLACK);
+    rl.drawRectangleLinesEx(rec, 1, Color.black);
 }
 
 fn drawNumberedBoxInvert(x: usize, y: usize, number: usize, fillUpper: bool) void {
-    const max = @intToFloat(f32, cellSize);
-    const posX = @intToFloat(f32, x * cellSize);
-    const posY = @intToFloat(f32, y * cellSize);
+    const max = @as(f32, @floatFromInt(cellSize));
+    const posX = @as(f32, @floatFromInt(x * cellSize));
+    const posY = @as(f32, @floatFromInt(y * cellSize));
     if (fillUpper) {
-        rl.DrawTriangle(
+        rl.drawTriangle(
             .{ .x = max + posX, .y = max + posY },
-            .{ .x = max + posX, .y = 0   + posY },
-            .{ .x = 0   + posX, .y = 0   + posY },
-            rl.BLACK,
+            .{ .x = max + posX, .y = 0 + posY },
+            .{ .x = 0 + posX, .y = 0 + posY },
+            Color.black,
         );
-
     } else {
-        rl.DrawLineEx(
-            rl.Vector2 { .x = posX, .y = posY },
-            rl.Vector2 { .x = posX + max, .y = posY + max },
+        rl.drawLineEx(
+            rl.Vector2{ .x = posX, .y = posY },
+            rl.Vector2{ .x = posX + max, .y = posY + max },
             3,
-            rl.BLACK,
+            Color.black,
         );
     }
 
-    rl.DrawTriangle(
+    rl.drawTriangle(
         .{ .x = max + posX, .y = max + posY },
-        .{ .x = 0   + posX, .y = 0   + posY },
-        .{ .x = 0   + posX, .y = max + posY },
-        rl.WHITE,
+        .{ .x = 0 + posX, .y = 0 + posY },
+        .{ .x = 0 + posX, .y = max + posY },
+        Color.white,
     );
 
-    const centerY = @floatToInt(c_int, (max + max + 0 + posY * 3) / 3);
+    const centerY = @as(c_int, @intFromFloat((max + max + 0 + posY * 3) / 3));
     var buf: [30:0]u8 = undefined;
     const text = std.fmt.bufPrintZ(&buf, "{d}", .{number}) catch unreachable;
-    rl.DrawText(text.ptr, @intCast(c_int, x * cellSize) + 5, centerY - 5, 20, rl.BLACK);
+    rl.drawText(text, @as(c_int, @intCast(x * cellSize)) + 5, centerY - 5, 20, Color.black);
 
     const rec = rectangleForPoint(x, y);
-    rl.DrawRectangleLinesEx(rec, 1, rl.BLACK);
+    rl.drawRectangleLinesEx(rec, 1, Color.black);
 }
-
 
 // ==================================== MAIN ====================================
 // ==============================================================================
