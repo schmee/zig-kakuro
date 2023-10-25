@@ -24,7 +24,7 @@ The repo bundles 980 Kakuro puzzles from [Otto and Angela Janko's puzzle site](h
 |----------------|---------|-----|
 | macOS x86      | ✅      | ✅  |
 | macOS aarch64  | ✅      | ✅  |
-| Windows 10 x86 | ✅      | 🐛  |
+| Windows 10 x86 | ✅      | ✅  |
 | Linux          | ❓      | ❓  |
 
 Legend:
