@@ -1,5 +1,4 @@
 const std = @import("std");
-const rl = @import("raylib-zig/build.zig");
 
 const Mode = enum {
     gui,
@@ -20,7 +19,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     const solve_opts = b.addOptions();
-    solve_exe.addOptions("build_options", solve_opts);
+    solve_exe.root_module.addOptions("build_options", solve_opts);
     solve_opts.addOption(Mode, "mode", .solve);
 
     b.installArtifact(solve_exe);
@@ -42,16 +41,20 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
 
-    var raylib = rl.getModule(b, "raylib-zig");
-    var raylib_math = rl.math.getModule(b, "raylib-zig");
-
     const gui_opts = b.addOptions();
-    gui_exe.addOptions("build_options", gui_opts);
+    gui_exe.root_module.addOptions("build_options", gui_opts);
     gui_opts.addOption(Mode, "mode", .gui);
 
-    rl.link(b, gui_exe, target, optimize);
-    gui_exe.addModule("raylib", raylib);
-    gui_exe.addModule("raylib-math", raylib_math);
+    const raylib_zig = b.dependency("raylib_zig", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const raylib = raylib_zig.module("raylib");
+    const raylib_math = raylib_zig.module("raylib-math");
+    const raylib_artifact = raylib_zig.artifact("raylib");
+    gui_exe.linkLibrary(raylib_artifact);
+    gui_exe.root_module.addImport("raylib", raylib);
+    gui_exe.root_module.addImport("raylib-math", raylib_math);
 
     b.installArtifact(gui_exe);
     const gui_cmd = b.addRunArtifact(gui_exe);

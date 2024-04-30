@@ -18,7 +18,6 @@ const time = std.time;
 const Allocator = mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
-const Atomic = std.atomic.Atomic;
 const AutoHashMap = std.AutoHashMap;
 const StaticBitSet = std.bit_set.StaticBitSet;
 const DynamicBitSet = std.bit_set.DynamicBitSet;
@@ -41,9 +40,9 @@ const Color = rl.Color;
 /// propagation". The "depth first search" part is implemented in `search` and
 /// the "constraint propagation" part is `Line.remove_candidate_and_propagate`,
 /// so those are both good places to start to see how the solver works.
-pub const std_options = struct {
-    pub const fmt_max_depth = 10;
-    pub const log_level = .info;
+pub const std_options: std.Options = .{
+    .fmt_max_depth = 10,
+    .log_level = .info,
 };
 const has_gui = build_options.mode == .gui;
 
@@ -119,7 +118,7 @@ const State = struct {
             for (aux_data.board) |c| {
                 if (c != WALL) n_cells += 1;
             }
-            var all_candidates = try allocator.alloc(Candidates, n_cells);
+            const all_candidates = try allocator.alloc(Candidates, n_cells);
             @memset(all_candidates, .{ .cs = 0b111_111_111 });
             break :blk all_candidates;
         };
@@ -371,7 +370,7 @@ fn computeLineState(state: *const State, line: Line) LineState {
     };
     // Store indices for exact line solving.
     if (n_empty >= 2 and n_empty <= 5) {
-        std.mem.copy(u16, &line_state.indices, empty_indices.constSlice());
+        std.mem.copyForwards(u16, &line_state.indices, empty_indices.constSlice());
     }
     return line_state;
 }
@@ -684,7 +683,7 @@ fn propagate(stack: *PropagateStack, state: *State, precomputed_lines: Precomput
     if (state.move_index) |move_index| try stack.append(move_index);
 
     const should_draw_propagation = if (has_gui)
-        @atomicLoad(u8, &run_context.should_draw_propagation, .SeqCst) == 1
+        @atomicLoad(u8, &run_context.should_draw_propagation, .seq_cst) == 1
     else
         false;
 
@@ -1036,7 +1035,7 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
     };
 
     if (has_gui) {
-        @atomicStore(?*const State, &run_context.state, &state, .SeqCst);
+        @atomicStore(?*const State, &run_context.state, &state, .seq_cst);
     }
 
     var propagate_stack = try PropagateStack.init(allocator, aux_data.n_cells);
@@ -1054,14 +1053,14 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
 
     const precomputed_lines = aux_data.precomputed_lines;
     search: while (stack.items.len > 0 and iters < opts.max_iters) {
-        if (has_gui and !run_context.running.load(.SeqCst))
+        if (has_gui and !run_context.running.load(.seq_cst))
             break;
         if (false) break :search;
         // if (iters % 10 == 0)
         //     std.log.info("search stack {d} iters {d}\n", .{stack.items.len, iters});
         iters += 1;
         if (has_gui) {
-            run_context.iters.store(iters, .SeqCst);
+            run_context.iters.store(iters, .seq_cst);
         }
 
         current = stack.pop();
@@ -1087,8 +1086,8 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
             rewind_clone = try allocator.create(State);
             rewind_clone.* = try current.clone(allocator, current.move_index);
             try run_context.rewinds.add(allocator, rewind_clone);
-            @atomicStore(?*const State, &run_context.state, &current, .SeqCst);
-            run_context.consistent.store(consistent, .SeqCst);
+            @atomicStore(?*const State, &run_context.state, &current, .seq_cst);
+            run_context.consistent.store(consistent, .seq_cst);
         }
 
         if (!consistent) continue;
@@ -1096,16 +1095,16 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
         if (current.is_terminal(aux_data.n_cells)) {
             assert(current.is_solved(precomputed_lines));
 
-            var solution_ptr = try allocator.create(State);
+            const solution_ptr = try allocator.create(State);
             solution_ptr.* = try current.clone(allocator, 0);
             result.solution = solution_ptr;
             result.iters = iters;
             result.end_time = @as(i64, @intCast(time.nanoTimestamp()));
 
             if (has_gui) {
-                var draw_solution = try allocator.create(State);
+                const draw_solution = try allocator.create(State);
                 draw_solution.* = try current.clone(allocator, null);
-                @atomicStore(?*const State, &run_context.state, draw_solution, .SeqCst);
+                @atomicStore(?*const State, &run_context.state, draw_solution, .seq_cst);
             }
 
             return result;
@@ -1362,7 +1361,7 @@ fn parse_descriptions(allocator: Allocator, path: []const u8) ![]Description {
     }
 
     while (rows.index != null) {
-        var desc = try parse_description(allocator, &rows);
+        const desc = try parse_description(allocator, &rows);
         try descriptions.append(desc);
         _ = rows.next();
     }
@@ -1500,7 +1499,7 @@ const Searcher = struct {
     fn do_search(self: *Self, allocator: Allocator) !?SearchResult {
         const root = self.kakuro.state;
         const aux_data = self.kakuro.aux_data;
-        var stack = self.stack;
+        const stack = self.stack;
 
         var stats = Stats{};
         var max_iters = self.max_iters_per_search;
@@ -1512,10 +1511,10 @@ const Searcher = struct {
             var i: usize = 0;
             while (i < self.max_retries) : (i += 1) {
                 var arena = ArenaAllocator.init(allocator);
-                var arena_allocator = arena.allocator();
+                const arena_allocator = arena.allocator();
                 // defer arena.deinit();
 
-                var cloned = try root.clone(arena_allocator, null);
+                const cloned = try root.clone(arena_allocator, null);
                 var result = try search(arena_allocator, stack, cloned, aux_data, opts, self.run_context);
                 self.stack.resize(0) catch unreachable;
                 stats.total_iters += result.iters;
@@ -1555,7 +1554,7 @@ const Runner = struct {
     const Self = @This();
 
     fn init(allocator: Allocator, kakuros: []Kakuro, run_context: *RunContext) !Self {
-        var stack = try allocator.create(ArrayList(State));
+        const stack = try allocator.create(ArrayList(State));
         stack.* = ArrayList(State).init(allocator);
         return Self{
             .kakuros = kakuros,
@@ -1720,7 +1719,7 @@ const Queue = struct {
     }
 
     fn add(self: *Self, allocator: Allocator, value: *State) !void {
-        var tail = try allocator.create(Node);
+        const tail = try allocator.create(Node);
         tail.* = .{
             .prev = self.tail,
             .next = null,
@@ -1778,12 +1777,12 @@ const Propagation = struct {
 };
 
 const RunContext = if (build_options.mode == .gui) struct {
-    running: Atomic(bool),
+    running: std.atomic.Value(bool),
     rewinds: Queue,
     rewind_index: usize,
     state: ?*const State,
-    consistent: Atomic(bool),
-    iters: Atomic(usize),
+    consistent: std.atomic.Value(bool),
+    iters: std.atomic.Value(usize),
     sleep_time_multiplier: usize,
     paused: u8,
     pauseMutex: std.Thread.Mutex,
@@ -1864,12 +1863,12 @@ fn createRunContext(
     should_reset_camera: *bool,
 ) !void {
     run_context.* = RunContext{
-        .running = Atomic(bool).init(true),
+        .running = std.atomic.Value(bool).init(true),
         .rewinds = Queue.init(),
         .rewind_index = 0,
-        .consistent = Atomic(bool).init(true),
+        .consistent = std.atomic.Value(bool).init(true),
         .state = null,
-        .iters = Atomic(usize).init(0),
+        .iters = std.atomic.Value(usize).init(0),
         .sleep_time_multiplier = 1,
         .paused = 0,
         .pauseMutex = .{},
@@ -1893,9 +1892,9 @@ fn recreateRunContext(
     tid: *std.Thread,
     should_reset_camera: *bool,
 ) !void {
-    @atomicStore(u8, &run_context.paused, 0, .SeqCst);
+    @atomicStore(u8, &run_context.paused, 0, .seq_cst);
     run_context.pauseCond.signal();
-    run_context.running.store(false, .SeqCst);
+    run_context.running.store(false, .seq_cst);
     std.Thread.join(tid.*);
 
     try createRunContext(allocator, kakuros, drawIndex, run_context, runner, tid, should_reset_camera);
@@ -1921,7 +1920,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
     var solutionDrawMode: SolutionDrawMode = .none;
 
     const kakuros = try createKakuros(allocator, descriptions);
-    var iters = try allocator.create(usize);
+    const iters = try allocator.create(usize);
     iters.* = 0;
     var run_context: RunContext = undefined;
     var runner: Runner = undefined;
@@ -1990,7 +1989,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
         }
 
         if (rl.isKeyPressed(.key_o)) {
-            _ = @atomicRmw(u8, &run_context.should_draw_propagation, .Xor, 1, .SeqCst);
+            _ = @atomicRmw(u8, &run_context.should_draw_propagation, .Xor, 1, .seq_cst);
             std.log.info("PRESSED 'O', should draw propagation {}", .{run_context.should_draw_propagation});
         }
 
@@ -2006,7 +2005,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
         if (rl.isKeyPressed(.key_p)) {
             std.log.info("PRESSED 'P', paused {d}", .{run_context.paused});
             run_context.rewind_index = 0;
-            const old = @atomicRmw(u8, &run_context.paused, .Xor, 1, .SeqCst);
+            const old = @atomicRmw(u8, &run_context.paused, .Xor, 1, .seq_cst);
             if (old == 1) {
                 run_context.pauseCond.signal();
             }
@@ -2021,7 +2020,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
             std.log.info("PRESSED 'LEFT'", .{});
             const rewind_index = @min(
                 @min(run_context.rewind_index + 1, max_rewinds - 1),
-                run_context.iters.load(.SeqCst),
+                run_context.iters.load(.seq_cst),
             );
             run_context.rewind_index = rewind_index;
             run_context.state = run_context.rewinds.get(run_context.rewind_index);
@@ -2072,7 +2071,7 @@ fn runGui(allocator: Allocator, descriptions: []const Description) !void {
 
         // Draw
         //----------------------------------------------------------------------------------
-        var desc = descriptions[drawIndex - 1];
+        const desc = descriptions[drawIndex - 1];
         if (should_reset_camera) {
             resetCamera(desc, &camera);
         }
@@ -2249,12 +2248,12 @@ fn drawDebugOverlay(
     const printer = Printer{ .allocator = allocator };
     const strs = [_][:0]const u8{
         printer.printLine("index: {d}/{d}", .{ drawIndex, n_kakuros }),
-        printer.printLine("iters: {d}", .{run_context.iters.load(.SeqCst) - run_context.rewind_index}),
+        printer.printLine("iters: {d}", .{run_context.iters.load(.seq_cst) - run_context.rewind_index}),
         printer.printLine("speed: {d}x", .{run_context.sleep_time_multiplier}),
         printer.printLine("rewind: {d}", .{run_context.rewind_index}),
         printer.printLine("solution: {s}", .{@tagName(solutionDrawMode)}),
         printer.printLine("candidates: {}", .{shouldDrawCandidates}),
-        printer.printLine("consistent: {}", .{run_context.consistent.load(.SeqCst)}),
+        printer.printLine("consistent: {}", .{run_context.consistent.load(.seq_cst)}),
         printer.printLine("paused: {}", .{run_context.paused != 0}),
         printer.printLine("x {d} y {d}", .{ @as(isize, @intFromFloat(mouse_position.x)), @as(isize, @intFromFloat(mouse_position.y)) }),
     };
