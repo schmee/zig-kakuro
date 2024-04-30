@@ -4,16 +4,14 @@
   <img width="600" height="600" src="solve.gif">
 </p>
 
-
 A [Kakuro](https://en.wikipedia.org/wiki/Kakuro) solver written in Zig with a GUI for interactive solving.
 
 The repo bundles 980 Kakuro puzzles from [Otto and Angela Janko's puzzle site](https://www.janko.at/Raetsel/Kakuro/), an excellent resource for logic puzzles of all kinds, and after some algorithm improvements zig-kakuro can now solve all 980 puzzles 😎
 
 ## Building
 
-1. Download the Zig 0.11.0 for your platform [here](https://ziglang.org/download/) (but see [platform support](#platform-support) below).
+1. Download the Zig 0.12.0 for your platform [here](https://ziglang.org/download/) (but see [platform support](#platform-support) below).
 1. Clone this repo to your local machine.
-1. In the repo folder, run `git submodule update --init --recursive`
 1. Run zig-kakuro in one of two ways:
   - Run `zig build gui` to run the GUI solver
   - Run `zig build solve` to run the solver on all the included Kakuros.
