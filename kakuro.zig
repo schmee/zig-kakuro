@@ -2583,20 +2583,8 @@ fn solve(allocator: Allocator, descriptions: []const Description) !void {
     // try runner.report();
 }
 
-fn checkPlatformSupport() void {
-    const builtin = @import("builtin");
-    const os = builtin.os.tag;
-    if (os == .windows) {
-        std.log.warn("========================================= WARNING =============================================", .{});
-        std.log.warn("zig-kakuro's GUI has known issues on Windows, see https://github.com/schmee/zig-kakuro/issues/1", .{});
-        std.log.warn("===============================================================================================", .{});
-    }
-}
-
 pub fn main() !void {
     std.log.info("mode {s}", .{@tagName(build_options.mode)});
-    if (build_options.mode == .gui)
-        checkPlatformSupport();
 
     const argv = std.os.argv;
     var boards_path: []const u8 = "boards.txt";
