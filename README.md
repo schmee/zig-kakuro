@@ -10,7 +10,7 @@ The repo bundles 980 Kakuro puzzles from [Otto and Angela Janko's puzzle site](h
 
 ## Building
 
-1. Download the Zig 0.12.0 for your platform [here](https://ziglang.org/download/) (but see [platform support](#platform-support) below).
+1. Download the Zig 0.13 for your platform [here](https://ziglang.org/download/) (but see [platform support](#platform-support) below).
 1. Clone this repo to your local machine.
 1. Run zig-kakuro in one of two ways:
   - Run `zig build gui` to run the GUI solver

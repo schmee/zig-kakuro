@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
 
     const solve_exe = b.addExecutable(.{
         .name = "kakuro",
-        .root_source_file = .{ .path = "kakuro.zig" },
+        .root_source_file = b.path("kakuro.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) void {
 
     const gui_exe = b.addExecutable(.{
         .name = "kakuro-gui",
-        .root_source_file = .{ .path = "kakuro.zig" },
+        .root_source_file = b.path("kakuro.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
@@ -50,11 +50,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const raylib = raylib_zig.module("raylib");
-    const raylib_math = raylib_zig.module("raylib-math");
     const raylib_artifact = raylib_zig.artifact("raylib");
     gui_exe.linkLibrary(raylib_artifact);
     gui_exe.root_module.addImport("raylib", raylib);
-    gui_exe.root_module.addImport("raylib-math", raylib_math);
 
     b.installArtifact(gui_exe);
     const gui_cmd = b.addRunArtifact(gui_exe);
