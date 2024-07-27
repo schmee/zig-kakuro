@@ -2575,12 +2575,13 @@ fn drawNumberedBoxInvert(x: usize, y: usize, number: usize, fillUpper: bool) voi
 // ==============================================================================
 //
 
-fn solve(allocator: Allocator, descriptions: []const Description) !void {
+fn solve(allocator: Allocator, descriptions: []const Description, report: bool) !void {
     const kakuros = try createKakuros(allocator, descriptions);
     var run_context = {};
     var runner = try Runner.init(allocator, kakuros, &run_context);
     try runner.runAll();
-    // try runner.report();
+    if (report)
+        try runner.report();
 }
 
 pub fn main() !void {
@@ -2588,9 +2589,13 @@ pub fn main() !void {
 
     const argv = std.os.argv;
     var boards_path: []const u8 = "boards.txt";
+    var report = false;
     if (argv.len > 1) {
         if (std.mem.eql(u8, std.mem.span(argv[1]), "--boards")) {
             boards_path = std.mem.span(argv[2]);
+        }
+        else if (std.mem.eql(u8, std.mem.span(argv[1]), "--report")) {
+            report = true;
         }
     }
 
@@ -2599,6 +2604,6 @@ pub fn main() !void {
 
     switch (build_options.mode) {
         .gui => try runGui(allocator, descriptions),
-        .solve => try solve(allocator, descriptions),
+        .solve => try solve(allocator, descriptions, report),
     }
 }

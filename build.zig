@@ -21,14 +21,14 @@ pub fn build(b: *std.Build) void {
     solve_exe.root_module.addOptions("build_options", solve_opts);
     solve_opts.addOption(Mode, "mode", .solve);
 
-    const solve_cmd = b.addRunArtifact(solve_exe);
+    const solve_run = b.addRunArtifact(solve_exe);
     const solve_install = b.addInstallArtifact(solve_exe, .{});
-    solve_cmd.step.dependOn(b.getInstallStep());
+    solve_run.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
-        solve_cmd.addArgs(args);
+        solve_run.addArgs(args);
     }
     const solve_step = b.step("solve", "Run TUI solver");
-    solve_step.dependOn(&solve_cmd.step);
+    solve_step.dependOn(&solve_run.step);
     solve_step.dependOn(&solve_install.step);
 
 
@@ -57,9 +57,26 @@ pub fn build(b: *std.Build) void {
     }
 
     // b.installArtifact(gui_exe);
-    const gui_cmd = b.addRunArtifact(gui_exe);
+    const gui_run = b.addRunArtifact(gui_exe);
     const gui_install = b.addInstallArtifact(gui_exe, .{});
     const gui_step = b.step("gui", "Run TUI gui");
-    gui_step.dependOn(&gui_cmd.step);
+    gui_step.dependOn(&gui_run.step);
     gui_step.dependOn(&gui_install.step);
+
+    // Diff
+    const diff_exe = b.addExecutable(.{
+        .name = "diff",
+        .root_source_file = b.path("src/diff.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const diff_step = b.step("diff", "Compare two reports generated from `solve --report`");
+    const diff_run = b.addRunArtifact(diff_exe);
+    const diff_install = b.addInstallArtifact(diff_exe, .{});
+    if (b.args) |args| {
+        diff_run.addArgs(args);
+    }
+    diff_step.dependOn(&diff_run.step);
+    diff_step.dependOn(&diff_install.step);
 }

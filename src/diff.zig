@@ -11,20 +11,19 @@ pub fn main() !void {
 
     const argv = std.os.argv;
     if (argv.len != 3) {
-        return error.IllegalInput;
+        return error.TooFewInputs;
     }
 
     const f1_path = std.mem.span(argv[1]);
     const f2_path = std.mem.span(argv[2]);
-    const f1 = try std.fs.cwd().openFile(f1_path, .{ .read = true });
+    const f1 = try std.fs.cwd().openFile(f1_path, .{});
     defer f1.close();
-    const f2 = try std.fs.cwd().openFile(f2_path, .{ .read = true });
+    const f2 = try std.fs.cwd().openFile(f2_path, .{});
     defer f2.close();
-
 
     const f1_content = blk: {
         const stat = try f1.stat();
-        var buf = try allocator.alloc(u8, stat.size);
+        const buf = try allocator.alloc(u8, stat.size);
         _ = try f1.read(buf);
         break :blk buf;
     };
@@ -33,7 +32,7 @@ pub fn main() !void {
 
     const f2_content = blk: {
         const stat = try f2.stat();
-        var buf = try allocator.alloc(u8, stat.size);
+        const buf = try allocator.alloc(u8, stat.size);
         _ = try f2.read(buf);
         break :blk buf;
     };
@@ -49,9 +48,10 @@ pub fn main() !void {
 
     var entities = std.ArrayList(Entity).init(allocator);
     while (f1_lines.next()) |f1_line| {
-        if (std.mem.eql(u8, f1_line, "")) break;
-        const parsed1 = parseLine(f1_line);
         const f2_line = f2_lines.next().?;
+        if (f1_line.len == 0 or f2_line.len == 0) break;
+
+        const parsed1 = parseLine(f1_line);
         const parsed2 = parseLine(f2_line);
         const diff = diffLines(parsed1, parsed2);
 
@@ -66,32 +66,31 @@ pub fn main() !void {
 
         const index = parsed1.index;
 
-        const iters_diff_abs = try std.math.absInt(diff.iters_abs);
+        const iters_diff_abs = @abs(diff.iters_abs);
         if (iters_diff_abs > max_iters_diff) {
-            max_iters_diff = iters_diff_abs;
+            max_iters_diff = @intCast(iters_diff_abs);
             max_iters_diff_index = index;
         }
 
-        const time_ns_diff_abs = try std.math.absInt(diff.time_ns_abs);
+        const time_ns_diff_abs = @abs(diff.time_ns_abs);
         if (time_ns_diff_abs > max_time_ns_diff) {
-            max_time_ns_diff = time_ns_diff_abs;
+            max_time_ns_diff = @intCast(time_ns_diff_abs);
             max_time_ns_diff_index = index;
         }
-
     }
 
     try w.writeAll("\n======================================================\n\n");
 
     try w.print("max iters diff\n", .{});
     if (max_iters_diff_index != -1) {
-        try printDiff(allocator, w, entities.items[@intCast(usize, max_iters_diff_index - 1)]);
+        try printDiff(allocator, w, entities.items[@intCast(max_iters_diff_index - 1)]);
     } else {
         try w.print("no iters diffs\n", .{});
     }
 
     try w.print("max time_ns diff\n", .{});
     if (max_time_ns_diff_index != -1) {
-        try printDiff(allocator, w, entities.items[@intCast(usize, max_time_ns_diff_index - 1)]);
+        try printDiff(allocator, w, entities.items[@intCast(max_time_ns_diff_index - 1)]);
     } else {
         try w.print("no time diffs\n", .{});
     }
@@ -114,16 +113,14 @@ pub fn main() !void {
             iters_unchanged += 1;
         }
     }
-    const iters_percent_unchanged = @intToFloat(f32, iters_unchanged) / @intToFloat(f32, entities.items.len) * 100;
-    const iters_percent_improvements = @intToFloat(f32, iters_improvements) / @intToFloat(f32, entities.items.len) * 100;
-    const iters_percent_regressions = @intToFloat(f32, iters_regressions) / @intToFloat(f32, entities.items.len) * 100;
-    try w.print("iters: unchanged {d} improvements {d} regressions {d} => unchanged {d:.2}% improvements {d:.2}% regressions {d:.2}%\n", .{
-        iters_unchanged, iters_improvements, iters_regressions, iters_percent_unchanged, iters_percent_improvements, iters_percent_regressions
-    });
+    const iters_percent_unchanged: f32 = @as(f32, @floatFromInt(iters_unchanged)) / @as(f32, @floatFromInt(entities.items.len)) * 100;
+    const iters_percent_improvements: f32 = @as(f32, @floatFromInt(iters_improvements)) / @as(f32, @floatFromInt(entities.items.len)) * 100;
+    const iters_percent_regressions: f32 = @as(f32, @floatFromInt(iters_regressions)) / @as(f32, @floatFromInt(entities.items.len)) * 100;
+    try w.print("iters: unchanged {d} improvements {d} regressions {d} => unchanged {d:.2}% improvements {d:.2}% regressions {d:.2}%\n", .{ iters_unchanged, iters_improvements, iters_regressions, iters_percent_unchanged, iters_percent_improvements, iters_percent_regressions });
 
     const iters_total_abs = iters_total2 - iters_total1;
-    const iters_total_rel = @intToFloat(f32, iters_total2) / @intToFloat(f32, iters_total1) * 100;
-    try w.print("iters: {d} {d} -> {d} {d:.2}%\n", .{iters_total1, iters_total2, iters_total_abs, iters_total_rel});
+    const iters_total_rel = @as(f32, @floatFromInt(iters_total2)) / @as(f32, @floatFromInt(iters_total1)) * 100;
+    try w.print("iters: {d} {d} -> {d} {d:.2}%\n", .{ iters_total1, iters_total2, iters_total_abs, iters_total_rel });
 
     for (entities.items) |entity| {
         if (entity.diff.iters_rel < 100) {
@@ -148,15 +145,13 @@ pub fn main() !void {
             time_ns_unchanged += 1;
         }
     }
-    const time_ns_percent_unchanged = @intToFloat(f32, time_ns_unchanged) / @intToFloat(f32, entities.items.len) * 100;
-    const time_ns_percent_improvements = @intToFloat(f32, time_ns_improvements) / @intToFloat(f32, entities.items.len) * 100;
-    const time_ns_percent_regressions = @intToFloat(f32, time_ns_regressions) / @intToFloat(f32, entities.items.len) * 100;
-    try w.print("time_ns: unchanged {d} improvements {d} regressions {d} => unchanged {d:.2}% improvements {d:.2}% regressions {d:.2}%\n", .{
-        time_ns_unchanged, time_ns_improvements, time_ns_regressions, time_ns_percent_unchanged, time_ns_percent_improvements, time_ns_percent_regressions
-    });
+    const time_ns_percent_unchanged = @as(f32, @floatFromInt(time_ns_unchanged)) / @as(f32, @floatFromInt(entities.items.len)) * 100;
+    const time_ns_percent_improvements = @as(f32, @floatFromInt(time_ns_improvements)) / @as(f32, @floatFromInt(entities.items.len)) * 100;
+    const time_ns_percent_regressions = @as(f32, @floatFromInt(time_ns_regressions)) / @as(f32, @floatFromInt(entities.items.len)) * 100;
+    try w.print("time_ns: unchanged {d} improvements {d} regressions {d} => unchanged {d:.2}% improvements {d:.2}% regressions {d:.2}%\n", .{ time_ns_unchanged, time_ns_improvements, time_ns_regressions, time_ns_percent_unchanged, time_ns_percent_improvements, time_ns_percent_regressions });
 
     for (entities.items) |entity| {
-        const time_ns_abs = try std.math.absInt(entity.diff.time_ns_abs);
+        const time_ns_abs = @abs(entity.diff.time_ns_abs);
         // Ignore microsecond differences to denoise the diff
         const should_diff = time_ns_abs > 20_000;
         if (should_diff and entity.diff.time_ns_rel < 100) {
@@ -175,14 +170,14 @@ pub fn main() !void {
     var out = std.mem.zeroes(T);
 
     for (entities.items) |entity| {
-        hasher.update(@bitCast([8]u8, entity.line1.iters)[0..]);
+        hasher.update(std.mem.asBytes(&entity.line1.iters));
     }
     hasher.final(&out);
     try w.print("iters hash 1 {s}\n", .{std.fmt.fmtSliceHexLower(out[0..])});
 
     hasher = Sha256.init(.{});
     for (entities.items) |entity| {
-        hasher.update(@bitCast([8]u8, entity.line2.iters)[0..]);
+        hasher.update(std.mem.asBytes(&entity.line2.iters));
     }
     hasher.final(&out);
     try w.print("iters hash 2 {s}\n", .{std.fmt.fmtSliceHexLower(out[0..])});
@@ -197,10 +192,10 @@ const Diff = struct {
 
 fn diffLines(parsed1: Line, parsed2: Line) Diff {
     const iters_diff = parsed2.iters - parsed1.iters;
-    const iters_relative = 100 * @intToFloat(f32, parsed2.iters) / @intToFloat(f32, parsed1.iters);
+    const iters_relative = 100 * @as(f32, @floatFromInt(parsed2.iters)) / @as(f32, @floatFromInt(parsed1.iters));
 
     const time_ns_diff = parsed2.time_ns - parsed1.time_ns;
-    const time_ns_relative = 100 * @intToFloat(f32, parsed2.time_ns) / @intToFloat(f32, parsed1.time_ns);
+    const time_ns_relative = 100 * @as(f32, @floatFromInt(parsed2.time_ns)) / @as(f32, @floatFromInt(parsed1.time_ns));
 
     return .{
         .iters_abs = iters_diff,
@@ -233,12 +228,12 @@ fn printDiff(allocator: std.mem.Allocator, w: anytype, entity: Entity) !void {
     try w.print(" time ms", .{});
     try w.print("{s:>10}", .{convertTimeNs(allocator, parsed1.time_ns)});
     try w.print("{s:>10}", .{convertTimeNs(allocator, parsed2.time_ns)});
-    const time_ns_abs = try std.math.absInt(diff.time_ns_abs);
+    const time_ns_abs = @abs(diff.time_ns_abs);
     const should_diff = time_ns_abs > 20_000;
     if (should_diff and diff.time_ns_abs < 0) {
         try w.writeAll(ANSI_GREEN);
     } else if (should_diff and diff.time_ns_abs > 0) {
-       try w.writeAll(ANSI_RED);
+        try w.writeAll(ANSI_RED);
     }
     try w.print("    ", .{});
     try w.print("{d:<6.2}%   ", .{diff.time_ns_rel});
@@ -251,7 +246,7 @@ fn convertIters(allocator: std.mem.Allocator, iters: isize) []const u8 {
     return if (iters == -1)
         "-"
     else
-        std.fmt.allocPrint(allocator, "{d}", .{@intCast(usize, iters)}) catch unreachable;
+        std.fmt.allocPrint(allocator, "{d}", .{iters}) catch unreachable;
 }
 
 fn convertTimeNs(allocator: std.mem.Allocator, time_ns: isize) []const u8 {
@@ -260,7 +255,6 @@ fn convertTimeNs(allocator: std.mem.Allocator, time_ns: isize) []const u8 {
     else
         std.fmt.allocPrint(allocator, "{}", .{std.fmt.fmtDurationSigned(time_ns)}) catch unreachable;
 }
-
 
 const esc = "\x1B";
 const csi = esc ++ "[";
