@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
     // Solve
     const solve_exe = b.addExecutable(.{
         .name = "kakuro",
-        .root_source_file = b.path("kakuro.zig"),
+        .root_source_file = b.path("src/kakuro.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) void {
     // GUI
     const gui_exe = b.addExecutable(.{
         .name = "kakuro-gui",
-        .root_source_file = b.path("kakuro.zig"),
+        .root_source_file = b.path("src/kakuro.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
