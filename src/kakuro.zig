@@ -78,10 +78,7 @@ const State = struct {
     /// all cells are filled).
     n_filled: u16,
 
-    twomove: std.bit_set.DynamicBitSet,
-    threemove: std.bit_set.DynamicBitSet,
-    fourmove: std.bit_set.DynamicBitSet,
-    fivemove: std.bit_set.DynamicBitSet,
+    nmoves: std.bit_set.DynamicBitSetUnmanaged,
 
     const Self = @This();
 
@@ -127,10 +124,7 @@ const State = struct {
             .candidates = candidates,
             .n_filled = 0,
             .move_index = null,
-            .twomove = try std.bit_set.DynamicBitSet.initEmpty(allocator, aux_data.precomputed_lines.lines.len),
-            .threemove = try std.bit_set.DynamicBitSet.initEmpty(allocator, aux_data.precomputed_lines.lines.len),
-            .fourmove = try std.bit_set.DynamicBitSet.initEmpty(allocator, aux_data.precomputed_lines.lines.len),
-            .fivemove = try std.bit_set.DynamicBitSet.initEmpty(allocator, aux_data.precomputed_lines.lines.len),
+            .nmoves = try std.bit_set.DynamicBitSetUnmanaged.initEmpty(allocator, aux_data.precomputed_lines.lines.len * 4),
         };
 
         // Apply upper and lower bounds on all cells as a pre-pass.
@@ -148,10 +142,10 @@ const State = struct {
                     n_empty += 1;
             }
             switch (n_empty) {
-                2 => state.twomove.set(line.id),
-                3 => state.threemove.set(line.id),
-                4 => state.fourmove.set(line.id),
-                5 => state.fivemove.set(line.id),
+                2 => state.nmoves.set(line.id * 4),
+                3 => state.nmoves.set(line.id * 4 + 1),
+                4 => state.nmoves.set(line.id * 4 + 2),
+                5 => state.nmoves.set(line.id * 4 + 3),
                 else => {},
             }
         }
@@ -161,10 +155,7 @@ const State = struct {
 
     fn deinit(self: *Self, allocator: Allocator) void {
         allocator.free(self.candidates);
-        self.twomove.deinit();
-        self.threemove.deinit();
-        self.fourmove.deinit();
-        self.fivemove.deinit();
+        self.nmoves.deinit(allocator);
     }
 
     fn clone(self: Self, allocator: Allocator, move_index: ?u16) !State {
@@ -172,10 +163,7 @@ const State = struct {
             .candidates = try allocator.dupe(Candidates, self.candidates),
             .n_filled = self.n_filled,
             .move_index = move_index,
-            .twomove = try self.twomove.clone(allocator),
-            .threemove = try self.threemove.clone(allocator),
-            .fourmove = try self.fourmove.clone(allocator),
-            .fivemove = try self.fivemove.clone(allocator),
+            .nmoves = try self.nmoves.clone(allocator),
         };
     }
 };
@@ -421,27 +409,10 @@ const Line = struct {
 
         // Note down which lines have 2-5 empty cells so we can solve them
         // exactly later.
-        // TODO: replace all this with a single array of bitpacked `u2`.
-        if (n_empty == 2) {
-            state.twomove.set(self.id);
-        } else {
-            state.twomove.unset(self.id);
-        }
-        if (n_empty == 3) {
-            state.threemove.set(self.id);
-        } else {
-            state.threemove.unset(self.id);
-        }
-        if (n_empty == 4) {
-            state.fourmove.set(self.id);
-        } else {
-            state.fourmove.unset(self.id);
-        }
-        if (n_empty == 5) {
-            state.fivemove.set(self.id);
-        } else {
-            state.fivemove.unset(self.id);
-        }
+        state.nmoves.setValue(self.id * 4, n_empty == 2);
+        state.nmoves.setValue(self.id * 4 + 1, n_empty == 3);
+        state.nmoves.setValue(self.id * 4 + 2, n_empty == 4);
+        state.nmoves.setValue(self.id * 4 + 3, n_empty == 5);
 
         const current_constraint = line_state.current_constraint;
         const candidates_to_remove = candidates_mask(n_empty, current_constraint, candidate);
@@ -1139,10 +1110,10 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
         // trying each move in turn.
 
         // 1. Solve lines of length 2 exactly.
-        var it = current.twomove.iterator(.{});
         var two_move_one: ?TwoMove = null;
         var two_move_two: ?[max_line_solutions]TwoMove = null;
-        while (it.next()) |index| {
+        for (0..precomputed_lines.lines.len) |index| {
+            if (!current.nmoves.isSet(index * 4)) continue;
             // std.log.info("two move {d}", .{index});
             const line = precomputed_lines.lines[index];
             const line_state = computeLineState(&current, line);
@@ -1169,10 +1140,10 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
         }
 
         // 2. Solve all lines of length 3 exactly.
-        it = current.threemove.iterator(.{});
         var three_move_one: ?ThreeMove = null;
         var three_move_two: ?[max_line_solutions]ThreeMove = null;
-        while (it.next()) |index| {
+        for (0..precomputed_lines.lines.len) |index| {
+            if (!current.nmoves.isSet(index * 4 + 1)) continue;
             // std.log.info("three move {d}", .{index});
             const line = precomputed_lines.lines[index];
             const line_state = computeLineState(&current, line);
@@ -1199,10 +1170,10 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
         }
 
         // 3. Solve all lines of length 4 exactly.
-        it = current.fourmove.iterator(.{});
         var four_move_one: ?FourMove = null;
         var four_move_two: ?[max_line_solutions]FourMove = null;
-        while (it.next()) |index| {
+        for (0..precomputed_lines.lines.len) |index| {
+            if (!current.nmoves.isSet(index * 4 + 2)) continue;
             // std.log.info("four move {d}", .{index});
             const line = precomputed_lines.lines[index];
             const line_state = computeLineState(&current, line);
@@ -1230,10 +1201,10 @@ fn search(allocator: Allocator, _stack: *ArrayList(State), state: State, aux_dat
         }
 
         // 4. Solve all lines of length 5 exactly.
-        it = current.fivemove.iterator(.{});
         var five_move_one: ?FiveMove = null;
         var five_move_two: ?[max_line_solutions]FiveMove = null;
-        while (it.next()) |index| {
+        for (0..precomputed_lines.lines.len) |index| {
+            if (!current.nmoves.isSet(index * 4 + 3)) continue;
             // std.log.info("five move {d}", .{index});
             const line = precomputed_lines.lines[index];
             const line_state = computeLineState(&current, line);
