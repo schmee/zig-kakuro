@@ -28,7 +28,7 @@ pub fn main() !void {
         _ = try f1.read(buf);
         break :blk buf;
     };
-    var f1_lines = std.mem.splitScalar(u8, f1_content, '\\');
+    var f1_lines = std.mem.splitScalar(u8, f1_content, '\n');
     _ = f1_lines.next(); // skip header
 
     const f2_content = blk: {
@@ -37,7 +37,7 @@ pub fn main() !void {
         _ = try f2.read(buf);
         break :blk buf;
     };
-    var f2_lines = std.mem.splitScalar(u8, f2_content, '\\');
+    var f2_lines = std.mem.splitScalar(u8, f2_content, '\n');
     _ = f2_lines.next(); // skip header
 
     var stdout_buffer: [1024]u8 = undefined;
