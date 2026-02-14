@@ -10,7 +10,7 @@ The repo bundles 980 Kakuro puzzles from [Otto and Angela Janko's puzzle site](h
 
 ## Building
 
-1. Download the Zig 0.13 for your platform [here](https://ziglang.org/download/) (but see [platform support](#platform-support) below).
+1. Download the Zig 0.15.2 for your platform [here](https://ziglang.org/download/) (but see [platform support](#platform-support) below).
 1. Clone this repo to your local machine.
 1. Run zig-kakuro in one of two ways:
   - Run `zig build gui` to run the GUI solver
@@ -38,7 +38,7 @@ If you run into any bugs or build issues, please [open an issue](https://github.
 
 - https://www.janko.at/: for the puzzles bundled in `boards.txt`. An amazing website for logic puzzles of all kinds. The puzzles are licensed under Creative Commons 3.0, and are used for non-commercial purpose with attribution, see https://www.janko.at/Raetsel/Creative-Commons.htm for more information.
 - [raylib](https://www.raylib.com/): used to build the GUI.
-- [raylib-zig](https://github.com/Not-Nik/raylib-zig): Zig bindings for Raylib, makes it a breeze to get started with Zig + Raylib!
+- [raylib-zig](https://github.com/raylib-zig/raylib-zig): Zig bindings for Raylib, makes it a breeze to get started with Zig + Raylib!
 
 ## License
 
