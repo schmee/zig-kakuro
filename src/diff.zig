@@ -1,4 +1,5 @@
 const std = @import("std");
+const ArrayList = std.array_list.Managed;
 
 const Entity = struct {
     line1: Line,
@@ -27,7 +28,7 @@ pub fn main() !void {
         _ = try f1.read(buf);
         break :blk buf;
     };
-    var f1_lines = std.mem.split(u8, f1_content, "\n");
+    var f1_lines = std.mem.splitScalar(u8, f1_content, '\\');
     _ = f1_lines.next(); // skip header
 
     const f2_content = blk: {
@@ -36,17 +37,19 @@ pub fn main() !void {
         _ = try f2.read(buf);
         break :blk buf;
     };
-    var f2_lines = std.mem.split(u8, f2_content, "\n");
+    var f2_lines = std.mem.splitScalar(u8, f2_content, '\\');
     _ = f2_lines.next(); // skip header
 
-    var w = std.io.getStdOut().writer();
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const w = &stdout_writer.interface;
 
     var max_iters_diff: isize = 0;
     var max_iters_diff_index: isize = -1;
     var max_time_ns_diff: isize = 0;
     var max_time_ns_diff_index: isize = -1;
 
-    var entities = std.ArrayList(Entity).init(allocator);
+    var entities = ArrayList(Entity).init(allocator);
     while (f1_lines.next()) |f1_line| {
         const f2_line = f2_lines.next().?;
         if (f1_line.len == 0 or f2_line.len == 0) break;
@@ -173,14 +176,16 @@ pub fn main() !void {
         hasher.update(std.mem.asBytes(&entity.line1.iters));
     }
     hasher.final(&out);
-    try w.print("iters hash 1 {s}\n", .{std.fmt.fmtSliceHexLower(out[0..])});
+    try w.print("iters hash 1 {x}\n", .{out[0..]});
 
     hasher = Sha256.init(.{});
     for (entities.items) |entity| {
         hasher.update(std.mem.asBytes(&entity.line2.iters));
     }
     hasher.final(&out);
-    try w.print("iters hash 2 {s}\n", .{std.fmt.fmtSliceHexLower(out[0..])});
+    try w.print("iters hash 2 {x}\n", .{out[0..]});
+
+    try w.flush();
 }
 
 const Diff = struct {
@@ -237,7 +242,7 @@ fn printDiff(allocator: std.mem.Allocator, w: anytype, entity: Entity) !void {
     }
     try w.print("    ", .{});
     try w.print("{d:<6.2}%   ", .{diff.time_ns_rel});
-    try w.print("{s:<5}   ", .{std.fmt.fmtDurationSigned(diff.time_ns_abs)});
+    try w.print("{D:<5}   ", .{diff.time_ns_abs});
     try w.writeAll(ANSI_RESET);
     try w.print("\n", .{});
 }
@@ -253,7 +258,7 @@ fn convertTimeNs(allocator: std.mem.Allocator, time_ns: isize) []const u8 {
     return if (time_ns == -1)
         "-"
     else
-        std.fmt.allocPrint(allocator, "{}", .{std.fmt.fmtDurationSigned(time_ns)}) catch unreachable;
+        std.fmt.allocPrint(allocator, "{D}", .{time_ns}) catch unreachable;
 }
 
 const esc = "\x1B";
@@ -269,7 +274,7 @@ const Line = struct {
 };
 
 fn parseLine(line: []const u8) Line {
-    var values = std.mem.split(u8, line, ",");
+    var values = std.mem.splitScalar(u8, line, ',');
     return .{
         .index = std.fmt.parseInt(isize, values.next().?, 10) catch unreachable,
         .iters = std.fmt.parseInt(isize, values.next().?, 10) catch unreachable,

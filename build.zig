@@ -9,13 +9,19 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const bounded_array = b.dependency("bounded_array", .{ .target = target, .optimize = optimize });
+
     // Solve
-    const solve_exe = b.addExecutable(.{
-        .name = "kakuro",
+    const solve_mod = b.addModule("kakuro", .{
         .root_source_file = b.path("src/kakuro.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+    });
+    solve_mod.addImport("bounded_array", bounded_array.module("bounded_array"));
+    const solve_exe = b.addExecutable(.{
+        .name = "kakuro",
+        .root_module = solve_mod,
     });
     const solve_opts = b.addOptions();
     solve_exe.root_module.addOptions("build_options", solve_opts);
@@ -33,12 +39,16 @@ pub fn build(b: *std.Build) void {
 
 
     // GUI
-    const gui_exe = b.addExecutable(.{
-        .name = "kakuro-gui",
+    const gui_mod = b.addModule("kakuro-gui", .{
         .root_source_file = b.path("src/kakuro.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+    });
+    gui_mod.addImport("bounded_array", bounded_array.module("bounded_array"));
+    const gui_exe = b.addExecutable(.{
+        .name = "kakuro-gui",
+        .root_module = gui_mod,
     });
 
     const gui_opts = b.addOptions();
@@ -64,12 +74,15 @@ pub fn build(b: *std.Build) void {
     gui_step.dependOn(&gui_install.step);
 
     // Diff
-    const diff_exe = b.addExecutable(.{
-        .name = "diff",
+    const diff_mod = b.addModule("diff", .{
         .root_source_file = b.path("src/diff.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+    });
+    const diff_exe = b.addExecutable(.{
+        .name = "diff",
+        .root_module = diff_mod,
     });
     const diff_step = b.step("diff", "Compare two reports generated from `solve --report`");
     const diff_run = b.addRunArtifact(diff_exe);
